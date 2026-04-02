@@ -221,7 +221,7 @@ def iq_loss(agent, current_Q, current_v, next_v, batch):
             constrain_loss = (torch.relu(-2 - reward))**2
         elif args.method.div == "js":
             # jensen–shannon
-            constrain_loss = (torch.relu(torch.log(2) - reward))**2
+            constrain_loss = (torch.relu(reward - torch.loh(2)))**2
         else:
             constrain_loss = (torch.relu(1 - reward))**2 + (torch.relu(-1 - reward))**2
 
@@ -242,7 +242,7 @@ def iq_loss(agent, current_Q, current_v, next_v, batch):
                 constrain_loss += (torch.relu(-2 - reward))**2
             elif args.method.div == "js":
                 # jensen–shannon
-                constrain_loss += (torch.relu(torch.log(2) - reward))**2
+                constrain_loss += (torch.relu(reward - torch.log(2)))**2
             else:
                 constrain_loss += (torch.relu(1 - reward))**2 + (torch.relu(-1 - reward))**2
 
