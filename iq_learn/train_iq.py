@@ -27,9 +27,22 @@ from agent import make_agent
 from utils.utils import eval_mode, average_dicts, get_concat_samples, evaluate, soft_update, hard_update
 from utils.logger import Logger
 from iq import iq_loss
+from agent.sac import SAC
 from agent.dice_agent import DiceAgent
+from agent.continuous_dice_agent import ContinuousDiceAgent
 
 torch.set_num_threads(2)
+
+
+def _make_dice_agent(agent):
+    """Create the appropriate DiceAgent variant based on the base agent type.
+
+    - Continuous (SAC-based)  → ContinuousDiceAgent
+    - Discrete  (MaxQ-based)  → DiceAgent
+    """
+    if isinstance(agent, SAC):
+        return ContinuousDiceAgent.from_sac(agent)
+    return DiceAgent.from_maxq(agent)
 
 
 def get_args(cfg: DictConfig):
@@ -138,7 +151,7 @@ def main(cfg: DictConfig):
 
             if learn_steps % args.env.eval_interval == 0:
                 if args.method.loss == "dice":
-                    eval_dice = DiceAgent.from_maxq(agent)
+                    eval_dice = _make_dice_agent(agent)
                     eval_dice.train_weighted_bc(
                         expert_buffer=expert_memory_replay,
                         args=args,
@@ -182,7 +195,7 @@ def main(cfg: DictConfig):
 
                     if args.method.loss == "dice":
                         print('Starting Weighted BC policy extraction...')
-                        dice_agent = DiceAgent.from_maxq(agent)
+                        dice_agent = _make_dice_agent(agent)
                         dice_agent.train_weighted_bc(
                             expert_buffer=expert_memory_replay,
                             args=args,
