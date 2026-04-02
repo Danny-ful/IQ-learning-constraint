@@ -42,20 +42,20 @@ def iq_loss(agent, current_Q, current_v, next_v, batch):
     with torch.no_grad():
         # Use different divergence functions (For χ2 divergence we instead add a third bellmann error-like term)
         if args.method.div == "hellinger":
-            phi_grad = 1/(1+reward)**2
+            phi_grad = 1/(1-reward)**2
             # phi_grad = 1/(1+reward)**2
         elif args.method.div == "kl":
             # original dual form for kl divergence (sub optimal)
-            phi_grad = torch.exp(-reward-1)
+            phi_grad = torch.exp(reward-1)
         elif args.method.div == "kl2":
             # biased dual form for kl divergence
-            phi_grad = F.softmax(-reward, dim=0) * reward.shape[0]
+            phi_grad = F.softmax(reward, dim=0) * reward.shape[0]
         elif args.method.div == "kl_fix":
             # our proposed unbiased form for fixing kl divergence
-            phi_grad = torch.exp(-reward)
+            phi_grad = torch.exp(reward)
         elif args.method.div == "js":
             # jensen–shannon
-            phi_grad = torch.exp(-reward)/(2 - torch.exp(-reward))
+            phi_grad = - torch.exp(reward)/(2 - torch.exp(reward))
         else:
             phi_grad = 1
     loss = (phi_grad * reward).mean()
@@ -93,20 +93,20 @@ def iq_loss(agent, current_Q, current_v, next_v, batch):
         with torch.no_grad():
                 # Use different divergence functions (For χ2 divergence we instead add a third bellmann error-like term)
                 if args.method.div == "hellinger":
-                    phi_grad = 1/(1+reward)**2
+                    phi_grad = 1/(1-reward)**2
                 # phi_grad = 1/(1+reward)**2
                 elif args.method.div == "kl":
                 # original dual form for kl divergence (sub optimal)
-                    phi_grad = torch.exp(-reward-1)
+                    phi_grad = torch.exp(reward-1)
                 elif args.method.div == "kl2":
                 # biased dual form for kl divergence
-                    phi_grad = F.softmax(-reward, dim=0) * reward.shape[0]
+                    phi_grad = F.softmax(reward, dim=0) * reward.shape[0]
                 elif args.method.div == "kl_fix":
                 # our proposed unbiased form for fixing kl divergence
-                    phi_grad = torch.exp(-reward)
+                    phi_grad = torch.exp(reward)
                 elif args.method.div == "js":
                 # jensen–shannon
-                    phi_grad = torch.exp(-reward)/(2 - torch.exp(-reward))
+                    phi_grad = - torch.exp(reward)/(2 - torch.exp(reward))
                 else:
                     phi_grad = 1
         dice_loss = (args.method.alpha * (phi_grad * reward)).mean()
@@ -225,7 +225,7 @@ def iq_loss(agent, current_Q, current_v, next_v, batch):
             reward = - reward / args.method.alpha
 
             if args.method.div == "hellinger":
-                constrain_loss = (torch.relu(reward - 1))**2
+                constrain_loss += (torch.relu(reward - 1))**2
                 # phi_grad = 1/(1+reward)**2
             elif args.method.div == "kl":
                 # original dual form for kl divergence (sub optimal)
@@ -234,12 +234,12 @@ def iq_loss(agent, current_Q, current_v, next_v, batch):
                 # biased dual form for kl divergence
                 constrain_loss = 0
             elif args.method.div == "chi":
-                constrain_loss = (torch.relu(-2 - reward))**2
+                constrain_loss += (torch.relu(-2 - reward))**2
             elif args.method.div == "js":
                 # jensen–shannon
-                constrain_loss = (torch.relu(reward - torch.log(2)))**2
+                constrain_loss += (torch.relu(reward - torch.log(2)))**2
             else:
-                constrain_loss = (torch.relu(reward - 1))**2 + (torch.relu(-1 - reward))**2
+                constrain_loss += (torch.relu(reward - 1))**2 + (torch.relu(-1 - reward))**2
 
 
         
