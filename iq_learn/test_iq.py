@@ -12,6 +12,7 @@ import wandb
 
 from make_envs import make_env
 from agent import make_agent
+from agent.dice_agent import DiceAgent
 from utils.utils import evaluate
 
 def get_args(cfg: DictConfig):
@@ -37,11 +38,23 @@ def main(cfg: DictConfig):
         policy_file = f'{args.eval.policy}'
     print(f'Loading policy from: {policy_file}')
 
-    if args.eval.transfer:
-        agent.load(hydra.utils.to_absolute_path(policy_file),
-                   f'_{name}_{args.eval.expert_env}')
+    if args.method.loss == "dice":
+        dice_agent = DiceAgent.from_maxq(agent)
+        if args.eval.transfer:
+            dice_agent.load(hydra.utils.to_absolute_path(policy_file),
+                            f'_{name}_{args.eval.expert_env}')
+        else:
+            dice_agent.load(hydra.utils.to_absolute_path(policy_file),
+                            f'_{name}_{args.env.name}')
+        agent = dice_agent
+
     else:
-        agent.load(hydra.utils.to_absolute_path(policy_file), f'_{name}_{args.env.name}')
+        if args.eval.transfer:
+            agent.load(hydra.utils.to_absolute_path(policy_file),
+                       f'_{name}_{args.eval.expert_env}')
+        else:
+            agent.load(hydra.utils.to_absolute_path(policy_file),
+                       f'_{name}_{args.env.name}')
 
     eval_returns, eval_timesteps = evaluate(agent, env, num_episodes=args.eval.eps)
     print(f'Avg. eval returns: {np.mean(eval_returns)}, timesteps: {np.mean(eval_timesteps)}')

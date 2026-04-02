@@ -35,6 +35,9 @@ AGENT_TRAIN_FORMAT = {
     'softq': [
         # ('batch_reward', 'BR', 'float'),
         ('critic_loss', 'CLOSS', 'float'),
+    ],
+    'maxq': [
+        ('critic_loss', 'CLOSS', 'float'),
     ]
 }
 

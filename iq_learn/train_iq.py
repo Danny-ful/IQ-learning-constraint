@@ -137,19 +137,32 @@ def main(cfg: DictConfig):
             steps += 1
 
             if learn_steps % args.env.eval_interval == 0:
-                eval_returns, eval_timesteps = evaluate(agent, eval_env, num_episodes=args.eval.eps)
+                if args.method.loss == "dice":
+                    eval_dice = DiceAgent.from_maxq(agent)
+                    eval_dice.train_weighted_bc(
+                        expert_buffer=expert_memory_replay,
+                        args=args,
+                        logger=logger,
+                        writer=writer,
+                    )
+                    eval_returns, eval_timesteps = evaluate(
+                        eval_dice, eval_env, num_episodes=args.eval.eps)
+                else:
+                    eval_returns, eval_timesteps = evaluate(
+                        agent, eval_env, num_episodes=args.eval.eps)
                 returns = np.mean(eval_returns)
                 learn_steps += 1  # To prevent repeated eval at timestep 0
                 logger.log('eval/episode_reward', returns, learn_steps)
                 logger.log('eval/episode', epoch, learn_steps)
                 logger.dump(learn_steps, ty='eval')
-                # print('EVAL\tEp {}\tAverage reward: {:.2f}\t'.format(epoch, returns))
 
                 if returns > best_eval_returns:
-                    # Store best eval returns
                     best_eval_returns = returns
                     wandb.run.summary["best_returns"] = best_eval_returns
-                    save(agent, epoch, args, output_dir='results_best')
+                    if args.method.loss == "dice":
+                        save(eval_dice, epoch, args, output_dir='results_best')
+                    else:
+                        save(agent, epoch, args, output_dir='results_best')
 
             # only store done true when episode finishes without hitting timelimit (allow infinite bootstrap)
             done_no_lim = done
