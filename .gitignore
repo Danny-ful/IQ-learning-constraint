@@ -130,4 +130,5 @@ dmypy.json
 
 # Ignored folders
 iq_learn/outputs
-iq_learn/wandb
+iq_learn/wandbget-pip*.py
+get-pip*.py
