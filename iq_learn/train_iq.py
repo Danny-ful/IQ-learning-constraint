@@ -27,6 +27,7 @@ from agent import make_agent
 from utils.utils import eval_mode, average_dicts, get_concat_samples, evaluate, soft_update, hard_update
 from utils.logger import Logger
 from iq import iq_loss
+from agent.dice_agent import DiceAgent
 
 torch.set_num_threads(2)
 
@@ -164,7 +165,29 @@ def main(cfg: DictConfig):
 
                 learn_steps += 1
                 if learn_steps == LEARN_STEPS:
-                    print('Finished!')
+                    print('Q-training finished!')
+
+                    if args.method.loss == "dice":
+                        print('Starting Weighted BC policy extraction...')
+                        dice_agent = DiceAgent.from_maxq(agent)
+                        dice_agent.train_weighted_bc(
+                            expert_buffer=expert_memory_replay,
+                            args=args,
+                            logger=logger,
+                            writer=writer,
+                        )
+                        eval_returns, eval_timesteps = evaluate(
+                            dice_agent, eval_env,
+                            num_episodes=args.eval.eps)
+                        bc_returns = np.mean(eval_returns)
+                        print(f'Weighted BC policy eval returns: '
+                              f'{bc_returns:.2f}')
+                        logger.log('eval/bc_episode_reward', bc_returns,
+                                   learn_steps)
+                        logger.dump(learn_steps, ty='eval')
+                        save(dice_agent, epoch, args,
+                             output_dir='results_bc')
+
                     wandb.finish()
                     return
 

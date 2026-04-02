@@ -34,6 +34,8 @@ def iq_loss(agent, current_Q, current_v, next_v, batch):
                 action[is_expert.squeeze(1), ...])
             reward = - reward - lambda_pen * pen
             loss_dict['ensemble_penalty'] = pen.mean().item()
+        else:
+            reward = -reward
     else:
         reward = -reward
 
@@ -157,10 +159,12 @@ def iq_loss(agent, current_Q, current_v, next_v, batch):
                     obs[is_expert.squeeze(1), ...],
                     action[is_expert.squeeze(1), ...])
                 reward = - reward - lambda_pen * pen
+            else:
+                reward = -reward
         else:
             reward = -reward
 
-        chi2_loss = 1/(4 * args.method.alpha) * (reward**2)[is_expert].mean()
+        chi2_loss = (1/4)  * (reward**2)[is_expert].mean()
         loss += chi2_loss
         loss_dict['chi2_loss'] = chi2_loss.item()
 
@@ -171,17 +175,8 @@ def iq_loss(agent, current_Q, current_v, next_v, batch):
         reward = current_Q - y
 
         # Ensemble disagreement penalty (only active when agent carries one)
-        ensemble = getattr(agent, "ensemble", None)
-        if ensemble is not None:
-            lambda_pen = getattr(args.method, "lambda_penalty", 0.0)
-            if lambda_pen > 0:
-                pen = ensemble.penalty(
-                    obs[is_expert.squeeze(1), ...],
-                    action[is_expert.squeeze(1), ...])
-                reward = - reward - lambda_pen * pen
-
-        else:
-            reward = -reward
+        
+        reward = -reward
 
         chi2_loss = 1/(4 * args.method.alpha) * (reward**2).mean()
         loss += chi2_loss
@@ -201,10 +196,10 @@ def iq_loss(agent, current_Q, current_v, next_v, batch):
         if ensemble is not None:
             lambda_pen = getattr(args.method, "lambda_penalty", 0.0)
             if lambda_pen > 0:
-                pen = ensemble.penalty(
-                    obs[is_expert.squeeze(1), ...],
-                    action[is_expert.squeeze(1), ...])
+                pen = ensemble.penalty(obs, action)
                 reward = - reward - lambda_pen * pen
+            else:
+                reward = - reward
         else:
             reward = - reward
 
@@ -223,14 +218,14 @@ def iq_loss(agent, current_Q, current_v, next_v, batch):
             # jensen–shannon
             constrain_loss = (torch.relu(reward - torch.loh(2)))**2
         else:
-            constrain_loss = (torch.relu(1 - reward))**2 + (torch.relu(-1 - reward))**2
+            constrain_loss = (torch.relu(reward - 1))**2 + (torch.relu(-1 - reward))**2
 
         if args.method.loss == "dice":
 
             reward = - reward / args.method.alpha
 
             if args.method.div == "hellinger":
-                constrain_loss += (torch.relu(reward - 1))**2
+                constrain_loss = (torch.relu(reward - 1))**2
                 # phi_grad = 1/(1+reward)**2
             elif args.method.div == "kl":
                 # original dual form for kl divergence (sub optimal)
@@ -239,12 +234,12 @@ def iq_loss(agent, current_Q, current_v, next_v, batch):
                 # biased dual form for kl divergence
                 constrain_loss = 0
             elif args.method.div == "chi":
-                constrain_loss += (torch.relu(-2 - reward))**2
+                constrain_loss = (torch.relu(-2 - reward))**2
             elif args.method.div == "js":
                 # jensen–shannon
-                constrain_loss += (torch.relu(reward - torch.log(2)))**2
+                constrain_loss = (torch.relu(reward - torch.log(2)))**2
             else:
-                constrain_loss += (torch.relu(1 - reward))**2 + (torch.relu(-1 - reward))**2
+                constrain_loss = (torch.relu(reward - 1))**2 + (torch.relu(-1 - reward))**2
 
 
         
