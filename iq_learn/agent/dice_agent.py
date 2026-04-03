@@ -114,17 +114,19 @@ class DiceAgent(MaxQ):
         """
         if div == "hellinger":
             ratio = 1.0 / (1.0 - reward).clamp(min=1e-8) ** 2
-        elif div in ("kl", "kl2"):
-            ratio = torch.exp(reward)
+        elif div == "kl":
+            ratio = torch.exp(reward - 1.0)
+        elif div == "kl2":
+            ratio = - 1.0 / reward.clamp(max = -1e-8) 
         elif div == "kl_fix":
-            ratio = 1.0 / (1.0 - reward).clamp(min=1e-8)
+            ratio = torch.exp(reward)
         elif div == "js":
             exp_r = torch.exp(reward)
             ratio = exp_r / (2.0 - exp_r).clamp(min=1e-8)
         elif div == "chi":
-            ratio = reward + 1.0
+            ratio = reward / 2 + 1.0
         else:
-            ratio = reward + 1.0
+            ratio = 1.0
         return torch.clamp(ratio, min=0.0)
 
     # ----- dice reward (mirrors iq.py constrain → dice path) -------- #
