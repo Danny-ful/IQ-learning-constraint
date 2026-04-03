@@ -248,11 +248,14 @@ class DiceAgent(MaxQ):
     def save(self, path, suffix=""):
         super().save(path, suffix)
         if self.actor is not None:
-            torch.save(self.actor.state_dict(), f"{path}{suffix}_actor")
+            # Match MaxQ.save critic path, then append _actor (same rule as load).
+            critic_path = f"{path}{suffix}"
+            torch.save(self.actor.state_dict(), f"{critic_path}_actor")
 
     def load(self, path, suffix=""):
         super().load(path, suffix)
-        actor_path = f'{path}/{self.args.agent.name}{suffix}_actor'
+        critic_path = f'{path}/{self.args.agent.name}{suffix}'
+        actor_path = f"{critic_path}_actor"
         if os.path.isfile(actor_path):
             hidden_dim = int(getattr(
                 getattr(self.args, "method", None), "bc_hidden_dim", 128))
