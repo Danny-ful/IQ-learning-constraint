@@ -96,7 +96,7 @@ class DiceAgent(MaxQ):
         agent.q_net.load_state_dict(maxq_agent.q_net.state_dict())
         agent.target_net.load_state_dict(maxq_agent.target_net.state_dict())
         agent.transition = maxq_agent.transition
-        agent.ensemble = maxq_agent.ensemble
+        # agent.ensemble = maxq_agent.ensemble
         return agent
 
     # ----- density-ratio computation -------------------------------- #
@@ -138,26 +138,33 @@ class DiceAgent(MaxQ):
 
         reward = current_Q - y
 
-        ensemble = getattr(self, "ensemble", None)
-        if ensemble is not None:
-            lambda_pen = getattr(self.args.method, "lambda_penalty", 0.0)
-            if lambda_pen > 0:
-                action_oh = self._action_onehot(action)
-                pen = ensemble.penalty(obs, action_oh)
-                reward = -reward - lambda_pen * pen
-            else:
-                reward = -reward
-        else:
-            reward = -reward
+        # ensemble = getattr(self, "ensemble", None)
+        # if ensemble is not None:
+        #     lambda_pen = getattr(self.args.method, "lambda_penalty", 0.0)
+        #     if lambda_pen > 0:
+        #         action_oh = self._action_onehot(action)
+        #         pen = ensemble.penalty(obs, action_oh)
+        #         reward = -reward - lambda_pen * pen
+        #     else:
+        #         reward = -reward
+        # else:
+        #     reward = -reward
 
-        reward = -reward / alpha
+        reward = reward / alpha
         return reward
 
     # ----- weighted BC training ------------------------------------- #
 
-    def train_weighted_bc(self, expert_buffer, args,
+    def train_weighted_bc(self, buffer, args,
                           logger=None, writer=None):
         r"""Train a policy network via weighted Behavior Cloning.
+
+        Parameters
+        ----------
+        buffer : Memory
+            Replay buffer to sample transitions from.  In online mode
+            this is typically the expert buffer; in offline mode this
+            should be the supplementary / offline dataset buffer.
 
         Hyperparameters (read from ``args.method`` with defaults):
 
@@ -188,7 +195,7 @@ class DiceAgent(MaxQ):
         self.target_net.eval()
 
         for step in range(1, bc_steps + 1):
-            obs, next_obs, action, _, done = expert_buffer.get_samples(
+            obs, next_obs, action, _, done = buffer.get_samples(
                 bc_batch, self.device)
 
             with torch.no_grad():

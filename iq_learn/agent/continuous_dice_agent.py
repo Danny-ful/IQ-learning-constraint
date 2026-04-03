@@ -93,9 +93,16 @@ class ContinuousDiceAgent(SAC):
 
     # ----- weighted BC training --------------------------------------- #
 
-    def train_weighted_bc(self, expert_buffer, args,
+    def train_weighted_bc(self, buffer, args,
                           logger=None, writer=None):
         r"""Train a continuous Gaussian policy via weighted Behavior Cloning.
+
+        Parameters
+        ----------
+        buffer : Memory
+            Replay buffer to sample transitions from.  In online mode
+            this is typically the expert buffer; in offline mode this
+            should be the supplementary / offline dataset buffer.
 
         Hyperparameters (read from ``args.method`` with defaults):
 
@@ -132,7 +139,7 @@ class ContinuousDiceAgent(SAC):
         self.actor.eval()
 
         for step in range(1, bc_steps + 1):
-            obs, next_obs, action, _, done = expert_buffer.get_samples(
+            obs, next_obs, action, _, done = buffer.get_samples(
                 bc_batch, self.device)
 
             with torch.no_grad():

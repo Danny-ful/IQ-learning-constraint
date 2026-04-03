@@ -103,6 +103,21 @@ def main(cfg: DictConfig):
 
     online_memory_replay = Memory(REPLAY_MEMORY//2, args.seed+1)
 
+    # Load offline / supplementary data when running in offline mode
+    if args.offline:
+        offline_demo = getattr(args.env, 'offline_demo', None)
+        if offline_demo:
+            online_memory_replay.load(
+                hydra.utils.to_absolute_path(f'experts/{offline_demo}'),
+                num_trajs=getattr(args.expert, 'offline_demos', -1),
+                sample_freq=args.expert.subsample_freq,
+                seed=args.seed + 43)
+            print(f'--> Offline buffer size: {online_memory_replay.size()}')
+        else:
+            raise ValueError(
+                'offline=True but env.offline_demo is not set. '
+                'Provide a path via env.offline_demo=<path>.')
+
     # Setup logging
     ts_str = datetime.datetime.fromtimestamp(time.time()).strftime("%Y-%m-%d_%H-%M-%S")
     log_dir = os.path.join(args.log_dir, args.env.name, args.exp_name, ts_str)
@@ -114,12 +129,72 @@ def main(cfg: DictConfig):
                     save_tb=True,
                     agent=args.agent.name)
 
-    steps = 0
+    best_eval_returns = -np.inf
 
-    # track mean reward and scores
+    # ------------------------------------------------------------------ #
+    #  Offline training: no environment interaction                       #
+    # ------------------------------------------------------------------ #
+    if args.offline:
+        agent.iq_update = types.MethodType(iq_update, agent)
+        agent.iq_update_critic = types.MethodType(iq_update_critic, agent)
+
+        for learn_step in range(1, LEARN_STEPS + 1):
+            losses = agent.iq_update(
+                online_memory_replay, expert_memory_replay,
+                logger, learn_step)
+
+            if learn_step % args.log_interval == 0:
+                for key, loss in losses.items():
+                    writer.add_scalar(key, loss, global_step=learn_step)
+
+            if learn_step % int(args.env.eval_interval) == 0:
+                if args.method.loss == "dice":
+                    eval_dice = _make_dice_agent(agent)
+                    eval_dice.train_weighted_bc(
+                        buffer=online_memory_replay, args=args,
+                        logger=logger, writer=writer)
+                    eval_returns, _ = evaluate(
+                        eval_dice, eval_env, num_episodes=args.eval.eps)
+                else:
+                    eval_returns, _ = evaluate(
+                        agent, eval_env, num_episodes=args.eval.eps)
+                returns = np.mean(eval_returns)
+                logger.log('eval/episode_reward', returns, learn_step)
+                logger.dump(learn_step, ty='eval')
+                if returns > best_eval_returns:
+                    best_eval_returns = returns
+                    wandb.run.summary["best_returns"] = best_eval_returns
+                    if args.method.loss == "dice":
+                        save(eval_dice, 0, args, output_dir='results_best')
+                    else:
+                        save(agent, 0, args, output_dir='results_best')
+
+        print('Offline Q-training finished!')
+
+        if args.method.loss == "dice":
+            print('Starting Weighted BC policy extraction...')
+            dice_agent = _make_dice_agent(agent)
+            dice_agent.train_weighted_bc(
+                buffer=online_memory_replay, args=args,
+                logger=logger, writer=writer)
+            eval_returns, _ = evaluate(
+                dice_agent, eval_env, num_episodes=args.eval.eps)
+            bc_returns = np.mean(eval_returns)
+            print(f'Weighted BC eval returns: {bc_returns:.2f}')
+            logger.log('eval/bc_episode_reward', bc_returns, LEARN_STEPS)
+            logger.dump(LEARN_STEPS, ty='eval')
+            save(dice_agent, 0, args, output_dir='results_bc')
+
+        save(agent, 0, args, output_dir='results')
+        wandb.finish()
+        return
+
+    # ------------------------------------------------------------------ #
+    #  Online training: interact with environment                         #
+    # ------------------------------------------------------------------ #
+    steps = 0
     scores_window = deque(maxlen=EPISODE_WINDOW)  # last N scores
     rewards_window = deque(maxlen=EPISODE_WINDOW)  # last N rewards
-    best_eval_returns = -np.inf
 
     learn_steps = 0
     begin_learn = False
@@ -153,7 +228,7 @@ def main(cfg: DictConfig):
                 if args.method.loss == "dice":
                     eval_dice = _make_dice_agent(agent)
                     eval_dice.train_weighted_bc(
-                        expert_buffer=expert_memory_replay,
+                        buffer=expert_memory_replay,
                         args=args,
                         logger=logger,
                         writer=writer,
@@ -197,7 +272,7 @@ def main(cfg: DictConfig):
                         print('Starting Weighted BC policy extraction...')
                         dice_agent = _make_dice_agent(agent)
                         dice_agent.train_weighted_bc(
-                            expert_buffer=expert_memory_replay,
+                            buffer=expert_memory_replay,
                             args=args,
                             logger=logger,
                             writer=writer,
