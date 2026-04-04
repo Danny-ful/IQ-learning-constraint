@@ -42,6 +42,15 @@ AGENT_TRAIN_FORMAT = {
 }
 
 
+def _csv_cell_to_float(v):
+    if v is None or v == '':
+        return 0.0
+    try:
+        return float(v)
+    except ValueError:
+        return 0.0
+
+
 class AverageMeter(object):
     def __init__(self):
         self._sum = 0
@@ -60,7 +69,8 @@ class MetersGroup(object):
         self._csv_file_name = self._prepare_file(file_name, 'csv')
         self._formating = formating
         self._meters = defaultdict(AverageMeter)
-        self._csv_file = open(self._csv_file_name, 'w')
+        self._csv_file = open(self._csv_file_name, 'w+', newline='')
+        self._csv_fieldnames = None
         self._csv_writer = None
 
     def _prepare_file(self, prefix, suffix):
@@ -84,12 +94,50 @@ class MetersGroup(object):
         return data
 
     def _dump_to_csv(self, data):
-        if self._csv_writer is None:
-            self._csv_writer = csv.DictWriter(self._csv_file,
-                                              fieldnames=sorted(data.keys()),
-                                              restval=0.0)
+        if self._csv_fieldnames is None:
+            self._csv_fieldnames = sorted(data.keys())
+            self._csv_writer = csv.DictWriter(
+                self._csv_file,
+                fieldnames=self._csv_fieldnames,
+                restval=0.0)
             self._csv_writer.writeheader()
-        self._csv_writer.writerow(data)
+            self._csv_writer.writerow(
+                {k: data.get(k, 0.0) for k in self._csv_fieldnames})
+            self._csv_file.flush()
+            return
+
+        extra = set(data.keys()) - set(self._csv_fieldnames)
+        if extra:
+            self._expand_schema_and_rewrite(data)
+            return
+
+        row = {k: data.get(k, 0.0) for k in self._csv_fieldnames}
+        self._csv_writer.writerow(row)
+        self._csv_file.flush()
+
+    def _expand_schema_and_rewrite(self, data):
+        self._csv_fieldnames = sorted(
+            set(self._csv_fieldnames) | set(data.keys()))
+        self._csv_file.seek(0)
+        reader = csv.DictReader(self._csv_file)
+        rows = []
+        for r in reader:
+            row = {
+                k: _csv_cell_to_float(r.get(k))
+                for k in self._csv_fieldnames
+            }
+            rows.append(row)
+        rows.append(
+            {k: data.get(k, 0.0) for k in self._csv_fieldnames})
+        self._csv_file.seek(0)
+        self._csv_file.truncate()
+        self._csv_writer = csv.DictWriter(
+            self._csv_file,
+            fieldnames=self._csv_fieldnames,
+            restval=0.0)
+        self._csv_writer.writeheader()
+        for row in rows:
+            self._csv_writer.writerow(row)
         self._csv_file.flush()
 
     def _format(self, key, value, ty):
