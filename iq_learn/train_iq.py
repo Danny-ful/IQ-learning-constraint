@@ -171,18 +171,29 @@ def main(cfg: DictConfig):
 
     # Load offline / supplementary data when running in offline mode
     if args.offline:
-        offline_demo = getattr(args.env, 'offline_demo', None)
-        if offline_demo:
-            online_memory_replay.load(
-                hydra.utils.to_absolute_path(f'experts/{offline_demo}'),
-                num_trajs=getattr(args.expert, 'offline_demos', -1),
-                sample_freq=args.expert.subsample_freq,
-                seed=args.seed + 43)
-            print(f'--> Offline buffer size: {online_memory_replay.size()}')
-        else:
-            raise ValueError(
-                'offline=True but env.offline_demo is not set. '
-                'Provide a path via env.offline_demo=<path>.')
+        # Always mix expert data into offline buffer.
+        online_memory_replay.load(
+            hydra.utils.to_absolute_path(f'experts/{args.env.demo}'),
+            num_trajs=args.expert.demos,
+            sample_freq=args.expert.subsample_freq,
+            seed=args.seed + 43)
+
+        # Also mix all datasets under iq_learn/supplement into offline buffer.
+        supplement_dir = hydra.utils.to_absolute_path("supplement")
+        if os.path.isdir(supplement_dir):
+            supplement_files = sorted(
+                f for f in os.listdir(supplement_dir)
+                if os.path.isfile(os.path.join(supplement_dir, f))
+                and f.endswith((".pkl", ".npy", ".pt")))
+            for idx, supplement_file in enumerate(supplement_files):
+                online_memory_replay.load(
+                    os.path.join(supplement_dir, supplement_file),
+                    num_trajs=getattr(args.expert, 'offline_demos', -1),
+                    sample_freq=args.expert.subsample_freq,
+                    seed=args.seed + 44 + idx)
+                print(f'--> Loaded Supplement dataset: {supplement_file}')
+
+        print(f'--> Offline buffer size (expert + Supplement): {online_memory_replay.size()}')
 
     # Setup logging
     ts_str = datetime.datetime.fromtimestamp(time.time()).strftime("%Y-%m-%d_%H-%M-%S")

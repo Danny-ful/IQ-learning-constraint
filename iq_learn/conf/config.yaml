@@ -18,6 +18,7 @@ train:
 
 expert:
   demos: 1
+  offline_demos: -1
   subsample_freq: 1
 
 eval:
@@ -29,6 +30,7 @@ eval:
   expert_env: ''
 
 env:
+  offline_demo: ''
   replay_mem: 50000
   initial_mem: 1280
   eps_steps: 1000

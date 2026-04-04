@@ -36,6 +36,7 @@ class ExpertDataset(Dataset):
             deterministic:            If true, sample determinstic expert trajectories.
         """
         all_trajectories = load_trajectories(expert_location, num_trajectories, seed)
+        loaded_num_trajectories = len(all_trajectories["states"])
         self.trajectories = {}
 
         # Randomize start index of each trajectory for subsampling
@@ -47,7 +48,7 @@ class ExpertDataset(Dataset):
 
             if k != "lengths":
                 samples = []
-                for i in range(num_trajectories):
+                for i in range(loaded_num_trajectories):
                     samples.append(data[i][0::subsample_frequency])
                 self.trajectories[k] = samples
             else:
@@ -118,6 +119,12 @@ def load_trajectories(expert_location: str,
         # Sample random `num_trajectories` experts.
         perm = np.arange(len(trajs["states"]))
         perm = rng.permutation(perm)
+        total_num_trajectories = len(perm)
+
+        if num_trajectories is None or num_trajectories < 0:
+            num_trajectories = total_num_trajectories
+        else:
+            num_trajectories = min(num_trajectories, total_num_trajectories)
 
         idx = perm[:num_trajectories]
         for k, v in trajs.items():
