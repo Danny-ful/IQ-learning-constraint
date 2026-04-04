@@ -157,7 +157,7 @@ class SingleQCritic(nn.Module):
 
 class DoubleQCriticState(nn.Module):
     def __init__(self, obs_dim, action_dim, hidden_dim, hidden_depth, args):
-        super(DoubleQCritic, self).__init__()
+        super(DoubleQCriticState, self).__init__()
         self.obs_dim = obs_dim
         self.action_dim = action_dim
         self.args = args
