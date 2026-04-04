@@ -99,6 +99,41 @@ class DiceAgent(MaxQ):
         # agent.ensemble = maxq_agent.ensemble
         return agent
 
+    
+    # ----- projection of reward to valid domain (for computing density ratio) -- #
+
+    def project_reward_to_valid_domain(reward, div, eps=1e-6):
+        """
+        Project reward into the valid domain of (f')^{-1}, with a small margin eps.
+        """
+        if div == "hellinger":
+            # valid domain: reward < 1
+            # if reward >= 1, then restrict to 1 - eps.
+            reward = torch.clamp(reward, max=1.0 - eps)
+
+        elif div == "kl":
+            # valid domain: all real numbers
+            pass
+
+        elif div == "kl2":
+            # valid domain: reward < 0
+            # if reward >= 0, then restrict to -eps.
+            reward = torch.clamp(reward, max=-eps)
+
+        elif div == "kl_fix":
+            # valid domain is all real numbers
+            pass
+
+        elif div == "js":
+            # valid domain: reward < log 2
+            reward = torch.clamp(reward, max=torch.log(2.0) - eps)
+
+        elif div == "chi":
+            # valid domain: reward >= -2
+            reward = torch.clamp(reward, min=-2.0 + eps)
+
+        return reward
+   
     # ----- density-ratio computation -------------------------------- #
 
     @staticmethod
@@ -202,6 +237,8 @@ class DiceAgent(MaxQ):
 
             with torch.no_grad():
                 reward = self._dice_reward(obs, next_obs, action, done, alpha)
+                ### ensure reward is in valid domain of (f')^{-1} before computing density ratio
+                reward = self.project_reward_to_valid_domain(reward, div, eps=1e-6)
                 weights = self.compute_density_ratio(reward, div)
 
             log_prob = self.actor.get_log_prob(obs, action)
