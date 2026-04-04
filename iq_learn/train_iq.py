@@ -24,7 +24,17 @@ from wrappers.atari_wrapper import LazyFrames
 from make_envs import make_env
 from dataset.memory import Memory
 from agent import make_agent
-from utils.utils import eval_mode, average_dicts, get_concat_samples, evaluate, soft_update, hard_update
+from utils.utils import (
+    eval_mode,
+    average_dicts,
+    get_concat_samples,
+    evaluate,
+    soft_update,
+    hard_update,
+    gym_reset,
+    gym_step,
+    gym_maybe_seed,
+)
 from utils.logger import Logger
 from iq import iq_loss
 from agent.sac import SAC
@@ -32,6 +42,57 @@ from agent.dice_agent import DiceAgent
 from agent.continuous_dice_agent import ContinuousDiceAgent
 
 torch.set_num_threads(2)
+
+
+def init_wandb_with_fallback(args, wandb_cfg):
+    """Initialize wandb with graceful fallback for permission/network failures."""
+    base_kwargs = dict(
+        project=args.project_name,
+        sync_tensorboard=True,
+        reinit=True,
+        config=wandb_cfg,
+    )
+
+    try:
+        wandb.init(
+            project="iq-learn-debug",
+            entity="wenqilaid",
+        )
+        return
+    except Exception as err:
+        print(f"[wandb] Online init failed: {err}")
+
+    for mode in ("offline", "disabled"):
+        try:
+            wandb.init(mode=mode, **base_kwargs)
+            print(f"[wandb] Fallback to mode='{mode}' succeeded.")
+            return
+        except Exception as err:
+            print(f"[wandb] Fallback mode='{mode}' failed: {err}")
+
+    print("[wandb] Disabled: all init attempts failed. Training will continue without wandb logging.")
+
+
+def safe_wandb_set_best_returns(best_eval_returns):
+    """Best-effort update for wandb summary."""
+    run = getattr(wandb, "run", None)
+    if run is None:
+        return
+    try:
+        run.summary["best_returns"] = best_eval_returns
+    except Exception as err:
+        print(f"[wandb] Failed to update summary: {err}")
+
+
+def safe_wandb_finish():
+    """Best-effort wandb finish."""
+    run = getattr(wandb, "run", None)
+    if run is None:
+        return
+    try:
+        wandb.finish()
+    except Exception as err:
+        print(f"[wandb] Failed to finish run: {err}")
 
 
 def _make_dice_agent(agent):
@@ -55,8 +116,9 @@ def get_args(cfg: DictConfig):
 @hydra.main(config_path="conf", config_name="config")
 def main(cfg: DictConfig):
     args = get_args(cfg)
-    wandb.init(project=args.project_name, entity='iq-learn',
-               sync_tensorboard=True, reinit=True, config=args)
+
+    if args.method.loss == "dice" and not args.offline:
+        raise ValueError("method.loss=dice is only supported when offline=True")
 
     # set seeds
     random.seed(args.seed)
@@ -72,9 +134,9 @@ def main(cfg: DictConfig):
     env = make_env(args)
     eval_env = make_env(args)
 
-    # Seed envs
-    env.seed(args.seed)
-    eval_env.seed(args.seed + 10)
+    # Seed envs (gym>=0.26 removed env.seed; use reset(seed=) via gym_maybe_seed)
+    first_obs = gym_maybe_seed(env, args.seed)
+    gym_maybe_seed(eval_env, args.seed + 10)
 
     REPLAY_MEMORY = int(env_args.replay_mem)
     INITIAL_MEMORY = int(env_args.initial_mem)
@@ -84,6 +146,10 @@ def main(cfg: DictConfig):
     INITIAL_STATES = 128  # Num initial states to use to calculate value of initial state distribution s_0
 
     agent = make_agent(env, args)
+
+    # After make_agent, obs_dim/action_dim are set so interpolations resolve; plain dict for wandb JSON.
+    wandb_cfg = OmegaConf.to_container(args, resolve=True)
+    init_wandb_with_fallback(args, wandb_cfg)
 
     if args.pretrain:
         pretrain_path = hydra.utils.to_absolute_path(args.pretrain)
@@ -137,6 +203,7 @@ def main(cfg: DictConfig):
     if args.offline:
         agent.iq_update = types.MethodType(iq_update, agent)
         agent.iq_update_critic = types.MethodType(iq_update_critic, agent)
+        offline_eval_episode = 0
 
         for learn_step in range(1, LEARN_STEPS + 1):
             losses = agent.iq_update(
@@ -159,11 +226,13 @@ def main(cfg: DictConfig):
                     eval_returns, _ = evaluate(
                         agent, eval_env, num_episodes=args.eval.eps)
                 returns = np.mean(eval_returns)
+                offline_eval_episode += 1
                 logger.log('eval/episode_reward', returns, learn_step)
+                logger.log('eval/episode', offline_eval_episode, learn_step)
                 logger.dump(learn_step, ty='eval')
                 if returns > best_eval_returns:
                     best_eval_returns = returns
-                    wandb.run.summary["best_returns"] = best_eval_returns
+                    safe_wandb_set_best_returns(best_eval_returns)
                     if args.method.loss == "dice":
                         save(eval_dice, 0, args, output_dir='results_best')
                     else:
@@ -181,12 +250,15 @@ def main(cfg: DictConfig):
                 dice_agent, eval_env, num_episodes=args.eval.eps)
             bc_returns = np.mean(eval_returns)
             print(f'Weighted BC eval returns: {bc_returns:.2f}')
+            offline_eval_episode += 1
+            logger.log('eval/episode_reward', bc_returns, LEARN_STEPS)
             logger.log('eval/bc_episode_reward', bc_returns, LEARN_STEPS)
+            logger.log('eval/episode', offline_eval_episode, LEARN_STEPS)
             logger.dump(LEARN_STEPS, ty='eval')
             save(dice_agent, 0, args, output_dir='results_bc')
 
         save(agent, 0, args, output_dir='results')
-        wandb.finish()
+        safe_wandb_finish()
         return
 
     # ------------------------------------------------------------------ #
@@ -201,13 +273,16 @@ def main(cfg: DictConfig):
     episode_reward = 0
 
     # Sample initial states from env
-    state_0 = [env.reset()] * INITIAL_STATES
+    if first_obs is not None:
+        state_0 = [first_obs] * INITIAL_STATES
+    else:
+        state_0 = [gym_reset(env)] * INITIAL_STATES
     if isinstance(state_0[0], LazyFrames):
         state_0 = np.array(state_0) / 255.0
     state_0 = torch.FloatTensor(np.array(state_0)).to(args.device)
 
     for epoch in count():
-        state = env.reset()
+        state = gym_reset(env)
         episode_reward = 0
         done = False
 
@@ -220,24 +295,13 @@ def main(cfg: DictConfig):
             else:
                 with eval_mode(agent):
                     action = agent.choose_action(state, sample=True)
-            next_state, reward, done, _ = env.step(action)
+            next_state, reward, done, _ = gym_step(env, action)
             episode_reward += reward
             steps += 1
 
             if learn_steps % args.env.eval_interval == 0:
-                if args.method.loss == "dice":
-                    eval_dice = _make_dice_agent(agent)
-                    eval_dice.train_weighted_bc(
-                        buffer=expert_memory_replay,
-                        args=args,
-                        logger=logger,
-                        writer=writer,
-                    )
-                    eval_returns, eval_timesteps = evaluate(
-                        eval_dice, eval_env, num_episodes=args.eval.eps)
-                else:
-                    eval_returns, eval_timesteps = evaluate(
-                        agent, eval_env, num_episodes=args.eval.eps)
+                eval_returns, eval_timesteps = evaluate(
+                    agent, eval_env, num_episodes=args.eval.eps)
                 returns = np.mean(eval_returns)
                 learn_steps += 1  # To prevent repeated eval at timestep 0
                 logger.log('eval/episode_reward', returns, learn_steps)
@@ -246,11 +310,8 @@ def main(cfg: DictConfig):
 
                 if returns > best_eval_returns:
                     best_eval_returns = returns
-                    wandb.run.summary["best_returns"] = best_eval_returns
-                    if args.method.loss == "dice":
-                        save(eval_dice, epoch, args, output_dir='results_best')
-                    else:
-                        save(agent, epoch, args, output_dir='results_best')
+                    safe_wandb_set_best_returns(best_eval_returns)
+                    save(agent, epoch, args, output_dir='results_best')
 
             # only store done true when episode finishes without hitting timelimit (allow infinite bootstrap)
             done_no_lim = done
@@ -267,29 +328,8 @@ def main(cfg: DictConfig):
                 learn_steps += 1
                 if learn_steps == LEARN_STEPS:
                     print('Q-training finished!')
-
-                    if args.method.loss == "dice":
-                        print('Starting Weighted BC policy extraction...')
-                        dice_agent = _make_dice_agent(agent)
-                        dice_agent.train_weighted_bc(
-                            buffer=expert_memory_replay,
-                            args=args,
-                            logger=logger,
-                            writer=writer,
-                        )
-                        eval_returns, eval_timesteps = evaluate(
-                            dice_agent, eval_env,
-                            num_episodes=args.eval.eps)
-                        bc_returns = np.mean(eval_returns)
-                        print(f'Weighted BC policy eval returns: '
-                              f'{bc_returns:.2f}')
-                        logger.log('eval/bc_episode_reward', bc_returns,
-                                   learn_steps)
-                        logger.dump(learn_steps, ty='eval')
-                        save(dice_agent, epoch, args,
-                             output_dir='results_bc')
-
-                    wandb.finish()
+                    save(agent, epoch, args, output_dir='results')
+                    safe_wandb_finish()
                     return
 
                 ######

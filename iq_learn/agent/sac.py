@@ -22,10 +22,12 @@ class SAC(object):
         self.actor_update_frequency = agent_cfg.actor_update_frequency
         self.critic_target_update_frequency = agent_cfg.critic_target_update_frequency
 
-        self.critic = hydra.utils.instantiate(agent_cfg.critic_cfg, args=args).to(self.device)
+        # _recursive_=False: do not recurse into `args` (it contains critic_cfg -> q_net again).
+        self.critic = hydra.utils.instantiate(
+            agent_cfg.critic_cfg, args=args, _recursive_=False).to(self.device)
 
-        self.critic_target = hydra.utils.instantiate(agent_cfg.critic_cfg, args=args).to(
-            self.device)
+        self.critic_target = hydra.utils.instantiate(
+            agent_cfg.critic_cfg, args=args, _recursive_=False).to(self.device)
         self.critic_target.load_state_dict(self.critic.state_dict())
 
         self.actor = hydra.utils.instantiate(agent_cfg.actor_cfg).to(self.device)

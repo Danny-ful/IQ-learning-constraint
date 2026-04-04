@@ -6,6 +6,38 @@ from torch.autograd import Variable
 from torchvision.utils import make_grid, save_image
 
 
+def gym_reset(env, seed=None):
+    """Old Gym API: return observation only (gym>=0.26 returns ``(obs, info)``)."""
+    if seed is not None:
+        try:
+            out = env.reset(seed=seed)
+        except TypeError:
+            out = env.reset()
+    else:
+        out = env.reset()
+    if isinstance(out, tuple):
+        return out[0]
+    return out
+
+
+def gym_step(env, action):
+    """Old Gym API: ``(obs, reward, done, info)`` (gym>=0.26 returns 5 values)."""
+    out = env.step(action)
+    if len(out) == 5:
+        obs, reward, terminated, truncated, info = out
+        done = terminated or truncated
+        return obs, reward, done, info
+    return out
+
+
+def gym_maybe_seed(env, seed):
+    """``env.seed(seed)`` on legacy Gym; else ``reset(seed=)`` (gym>=0.26). Returns first obs when using reset."""
+    if hasattr(env, "seed") and callable(getattr(env, "seed", None)):
+        env.seed(seed)
+        return None
+    return gym_reset(env, seed=seed)
+
+
 class eval_mode(object):
     def __init__(self, *models):
         self.models = models
@@ -35,18 +67,27 @@ def evaluate(actor, env, num_episodes=10, vis=True):
     total_returns = []
 
     while len(total_returns) < num_episodes:
-        state = env.reset()
+        state = gym_reset(env)
         done = False
+        ep_return = 0.0
+        ep_len = 0
+        appended = False
 
         with eval_mode(actor):
             while not done:
                 action = actor.choose_action(state, sample=False)
-                next_state, reward, done, info = env.step(action)
+                next_state, reward, done, info = gym_step(env, action)
                 state = next_state
-
-                if 'episode' in info.keys():
+                ep_return += reward
+                ep_len += 1
+                if isinstance(info, dict) and 'episode' in info:
                     total_returns.append(info['episode']['r'])
                     total_timesteps.append(info['episode']['l'])
+                    appended = True
+                    break
+            if not appended and done:
+                total_returns.append(ep_return)
+                total_timesteps.append(ep_len)
 
     return total_returns, total_timesteps
 

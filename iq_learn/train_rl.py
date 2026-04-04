@@ -18,7 +18,7 @@ from utils.logger import Logger
 from make_envs import make_env
 from dataset.memory import Memory
 from agent import make_agent
-from utils.utils import evaluate, eval_mode
+from utils.utils import evaluate, eval_mode, gym_reset, gym_step, gym_maybe_seed
 
 torch.set_num_threads(2)
 
@@ -49,9 +49,9 @@ def main(cfg: DictConfig):
     env_args = args.env
     env = make_env(args)
     eval_env = make_env(args)
-    # Seed envs
-    env.seed(args.seed)
-    eval_env.seed(args.seed + 10)
+    # Seed envs (gym>=0.26: no env.seed)
+    gym_maybe_seed(env, args.seed)
+    gym_maybe_seed(eval_env, args.seed + 10)
 
     REPLAY_MEMORY = int(env_args.replay_mem)
     INITIAL_MEMORY = int(env_args.initial_mem)
@@ -82,7 +82,7 @@ def main(cfg: DictConfig):
     best_eval_returns = -np.inf
 
     for epoch in count():
-        state = env.reset()
+        state = gym_reset(env)
         episode_reward = 0
         done = False
 
@@ -95,7 +95,7 @@ def main(cfg: DictConfig):
             else:
                 with eval_mode(agent):
                     action = agent.choose_action(state, sample=True)
-            next_state, reward, done, _ = env.step(action)
+            next_state, reward, done, _ = gym_step(env, action)
             episode_reward += reward
             steps += 1
 

@@ -22,8 +22,9 @@ class SoftQ(object):
         self.critic_target_update_frequency = agent_cfg.critic_target_update_frequency
         self.log_alpha = torch.tensor(np.log(agent_cfg.init_temp)).to(self.device)
         self.q_net = hydra.utils.instantiate(
-            agent_cfg.critic_cfg, args=args, device=self.device).to(self.device)
-        self.target_net = hydra.utils.instantiate(agent_cfg.critic_cfg, args=args, device=self.device).to(
+            agent_cfg.critic_cfg, args=args, device=self.device, _recursive_=False).to(self.device)
+        self.target_net = hydra.utils.instantiate(
+            agent_cfg.critic_cfg, args=args, device=self.device, _recursive_=False).to(
             self.device)
         self.target_net.load_state_dict(self.q_net.state_dict())
         self.critic_optimizer = Adam(self.q_net.parameters(), lr=agent_cfg.critic_lr,

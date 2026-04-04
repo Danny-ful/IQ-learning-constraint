@@ -7,8 +7,8 @@
 cd ..
 
 # Hopper-v2
-python train_iq.py env=hopper agent=sac expert.demos=1 method.loss=v0 method.regularize=True agent.actor_lr=3e-5 seed=0
 
+python train_iq.py env=hopper agent=sac expert.demos=1 method.loss=v0 method.regularize=True agent.actor_lr=3e-5 seed=0
 # HalfCheetah-v2
 python train_iq.py env=cheetah agent=sac expert.demos=1 method.loss=value method.regularize=True agent.actor_lr=3e-05 seed=0
 

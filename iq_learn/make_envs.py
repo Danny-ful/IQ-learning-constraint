@@ -2,6 +2,7 @@ import gym
 from stable_baselines3.common.atari_wrappers import AtariWrapper
 from stable_baselines3.common.monitor import Monitor
 
+from utils.utils import gym_maybe_seed
 from wrappers.atari_wrapper import ScaledFloatFrame, FrameStack, FrameStackEager, PyTorchFrame
 from wrappers.normalize_action_wrapper import check_and_normalize_box_actions
 
@@ -52,7 +53,7 @@ def make_dcm(cfg):
                         task_name=task_name,
                         seed=cfg.seed,
                         visualize_reward=True)
-    env.seed(cfg.seed)
+    gym_maybe_seed(env, cfg.seed)
     assert env.action_space.low.min() >= -1
     assert env.action_space.high.max() <= 1
 
@@ -80,7 +81,13 @@ def make_env(args, monitor=True):
         env = gym.make(args.env.name)
     
     if monitor:
-        env = Monitor(env, "gym")
+        # stable-baselines3>=2 wraps Monitor with gymnasium.Wrapper, which requires a
+        # gymnasium.Env. gym.make() returns classic gym.TimeLimit → AssertionError.
+        try:
+            env = Monitor(env, "gym")
+        except AssertionError:
+            # Skip Monitor when using classic Gym envs with SB3 2.x; training still works.
+            pass
 
     if is_atari(args.env.name):
         env = make_atari(env)

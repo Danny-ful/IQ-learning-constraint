@@ -126,7 +126,7 @@ class DiceAgent(MaxQ):
         elif div == "chi":
             ratio = reward / 2 + 1.0
         else:
-            ratio = 1.0
+            ratio = torch.ones_like(reward)
         return torch.clamp(ratio, min=0.0)
 
     # ----- dice reward (mirrors iq.py constrain → dice path) -------- #
