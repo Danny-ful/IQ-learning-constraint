@@ -6,6 +6,9 @@
 # Set working directory to iq_learn
 cd ..
 
+# Default to online wandb logging for new runs.
+export WANDB_MODE="${WANDB_MODE:-online}"
+
 # Hopper-v2
 
 python train_iq.py env=hopper agent=sac expert.demos=1 method.loss=v0 method.regularize=True agent.actor_lr=3e-5 seed=0

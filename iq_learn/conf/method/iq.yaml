@@ -11,6 +11,6 @@ method:
   regularize: False
   div:
 
-  alpha: 0.5
+  alpha: 0.05
   lambda_gp: 10
   mix_coeff: 1

@@ -19,6 +19,7 @@ import torch.nn.functional as F
 import wandb
 from omegaconf import DictConfig, OmegaConf
 from tensorboardX import SummaryWriter
+from tqdm.auto import tqdm
 
 from wrappers.atari_wrapper import LazyFrames
 from make_envs import make_env
@@ -46,18 +47,30 @@ torch.set_num_threads(2)
 
 def init_wandb_with_fallback(args, wandb_cfg):
     """Initialize wandb with graceful fallback for permission/network failures."""
+    requested_mode = os.getenv("WANDB_MODE", "online")
+    wandb_project = os.getenv("WANDB_PROJECT", args.project_name)
+    wandb_entity = os.getenv("WANDB_ENTITY")
+    wandb_run_name = os.getenv("WANDB_NAME") or args.exp_name or None
+
     base_kwargs = dict(
-        project=args.project_name,
+        project=wandb_project,
         sync_tensorboard=True,
         reinit=True,
         config=wandb_cfg,
     )
+    if wandb_entity:
+        base_kwargs["entity"] = wandb_entity
+    if wandb_run_name:
+        base_kwargs["name"] = wandb_run_name
+
+    if requested_mode in ("offline", "disabled"):
+        wandb.init(mode=requested_mode, **base_kwargs)
+        print(f"[wandb] Initialized in mode='{requested_mode}'.")
+        return
 
     try:
-        wandb.init(
-            project="iq-learn-debug",
-            entity="wenqilaid",
-        )
+        wandb.init(mode="online", **base_kwargs)
+        print("[wandb] Online init succeeded.")
         return
     except Exception as err:
         print(f"[wandb] Online init failed: {err}")
@@ -104,6 +117,19 @@ def _make_dice_agent(agent):
     if isinstance(agent, SAC):
         return ContinuousDiceAgent.from_sac(agent)
     return DiceAgent.from_maxq(agent)
+
+
+def sync_progress_bar(progress_bar, step, **postfix):
+    """Advance a tqdm bar to an absolute step count."""
+    if progress_bar is None:
+        return
+
+    delta = max(0, step - progress_bar.n)
+    if delta:
+        progress_bar.update(delta)
+
+    if postfix:
+        progress_bar.set_postfix(postfix)
 
 
 def get_args(cfg: DictConfig):
@@ -215,8 +241,13 @@ def main(cfg: DictConfig):
         agent.iq_update = types.MethodType(iq_update, agent)
         agent.iq_update_critic = types.MethodType(iq_update_critic, agent)
         offline_eval_episode = 0
+        offline_pbar = tqdm(
+            range(1, LEARN_STEPS + 1),
+            desc="Offline IQ training",
+            dynamic_ncols=True,
+        )
 
-        for learn_step in range(1, LEARN_STEPS + 1):
+        for learn_step in offline_pbar:
             losses = agent.iq_update(
                 online_memory_replay, expert_memory_replay,
                 logger, learn_step)
@@ -224,6 +255,12 @@ def main(cfg: DictConfig):
             if learn_step % args.log_interval == 0:
                 for key, loss in losses.items():
                     writer.add_scalar(key, loss, global_step=learn_step)
+                critic_loss = losses.get('critic_loss')
+                if critic_loss is not None:
+                    offline_pbar.set_postfix(
+                        critic=f"{float(critic_loss):.4f}",
+                        best=f"{best_eval_returns:.2f}" if np.isfinite(best_eval_returns) else "N/A",
+                    )
 
             if learn_step % int(args.env.eval_interval) == 0:
                 if args.method.loss == "dice":
@@ -248,7 +285,12 @@ def main(cfg: DictConfig):
                         save(eval_dice, 0, args, output_dir='results_best')
                     else:
                         save(agent, 0, args, output_dir='results_best')
+                offline_pbar.set_postfix(
+                    eval=f"{returns:.2f}",
+                    best=f"{best_eval_returns:.2f}",
+                )
 
+        offline_pbar.close()
         print('Offline Q-training finished!')
 
         if args.method.loss == "dice":
@@ -282,6 +324,11 @@ def main(cfg: DictConfig):
     learn_steps = 0
     begin_learn = False
     episode_reward = 0
+    online_pbar = tqdm(
+        total=LEARN_STEPS,
+        desc="Online IQ training",
+        dynamic_ncols=True,
+    )
 
     # Sample initial states from env
     if first_obs is not None:
@@ -315,6 +362,12 @@ def main(cfg: DictConfig):
                     agent, eval_env, num_episodes=args.eval.eps)
                 returns = np.mean(eval_returns)
                 learn_steps += 1  # To prevent repeated eval at timestep 0
+                sync_progress_bar(
+                    online_pbar,
+                    learn_steps,
+                    eval=f"{returns:.2f}",
+                    best=f"{best_eval_returns:.2f}" if np.isfinite(best_eval_returns) else "N/A",
+                )
                 logger.log('eval/episode_reward', returns, learn_steps)
                 logger.log('eval/episode', epoch, learn_steps)
                 logger.dump(learn_steps, ty='eval')
@@ -337,9 +390,16 @@ def main(cfg: DictConfig):
                     begin_learn = True
 
                 learn_steps += 1
+                sync_progress_bar(
+                    online_pbar,
+                    learn_steps,
+                    reward=f"{episode_reward:.2f}",
+                    best=f"{best_eval_returns:.2f}" if np.isfinite(best_eval_returns) else "N/A",
+                )
                 if learn_steps == LEARN_STEPS:
                     print('Q-training finished!')
                     save(agent, epoch, args, output_dir='results')
+                    online_pbar.close()
                     safe_wandb_finish()
                     return
 
@@ -364,6 +424,12 @@ def main(cfg: DictConfig):
         logger.log('train/episode_reward', episode_reward, learn_steps)
         logger.log('train/duration', time.time() - start_time, learn_steps)
         logger.dump(learn_steps, save=begin_learn)
+        sync_progress_bar(
+            online_pbar,
+            learn_steps,
+            reward=f"{episode_reward:.2f}",
+            best=f"{best_eval_returns:.2f}" if np.isfinite(best_eval_returns) else "N/A",
+        )
         # print('TRAIN\tEp {}\tAverage reward: {:.2f}\t'.format(epoch, np.mean(rewards_window)))
         save(agent, epoch, args, output_dir='results')
 

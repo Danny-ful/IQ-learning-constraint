@@ -33,6 +33,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.optim import Adam
 from torch.distributions import Categorical
+from tqdm.auto import tqdm
 
 from wrappers.atari_wrapper import LazyFrames
 from agent.maxq import MaxQ
@@ -231,7 +232,13 @@ class DiceAgent(MaxQ):
         self.q_net.eval()
         self.target_net.eval()
 
-        for step in range(1, bc_steps + 1):
+        bc_pbar = tqdm(
+            range(1, bc_steps + 1),
+            desc="Weighted BC",
+            dynamic_ncols=True,
+        )
+
+        for step in bc_pbar:
             obs, next_obs, action, _, done = buffer.get_samples(
                 bc_batch, self.device)
 
@@ -250,12 +257,17 @@ class DiceAgent(MaxQ):
 
             if step % bc_log_interval == 0:
                 mean_w = weights.mean().item()
+                bc_pbar.set_postfix(
+                    loss=f"{bc_loss.item():.4f}",
+                    mean_weight=f"{mean_w:.4f}",
+                )
                 print(f'  [Weighted BC] step {step}/{bc_steps}  '
                       f'loss={bc_loss.item():.4f}  mean_weight={mean_w:.4f}')
                 if writer is not None:
                     writer.add_scalar('bc/loss', bc_loss.item(), step)
                     writer.add_scalar('bc/mean_weight', mean_w, step)
 
+        bc_pbar.close()
         self.q_net.train()
         self.target_net.train()
         print(f'Weighted BC training finished ({bc_steps} steps).')
