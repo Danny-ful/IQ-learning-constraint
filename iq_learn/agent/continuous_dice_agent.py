@@ -144,6 +144,8 @@ class ContinuousDiceAgent(SAC):
 
             with torch.no_grad():
                 reward = self._dice_reward(obs, next_obs, action, done, alpha)
+                ### ensure reward is in valid domain of (f')^{-1}
+                reward = DiceAgent.project_reward_to_valid_domain(reward, div, eps=1e-6)
                 weights = self.compute_density_ratio(reward, div)
 
             dist = self.bc_actor(obs)
