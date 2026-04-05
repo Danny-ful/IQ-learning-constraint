@@ -14,3 +14,13 @@ method:
   alpha: 0.05
   lambda_gp: 10
   mix_coeff: 1
+
+  # Continuous CQL settings (used by agent=cql)
+  cql_alpha: 1.0
+  cql_n_actions: 10
+
+  # Keep legacy IQ path by default. Set true to run pure offline CQL updates.
+  offline_pure_cql: false
+
+  # For method.loss=dice in continuous domains, force using CQL critic.
+  dice_use_cql_q: false

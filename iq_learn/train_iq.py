@@ -39,6 +39,7 @@ from utils.utils import (
 from utils.logger import Logger
 from iq import iq_loss
 from agent.sac import SAC
+from agent.cql import CQL
 from agent.dice_agent import DiceAgent
 from agent.continuous_dice_agent import ContinuousDiceAgent
 
@@ -108,13 +109,17 @@ def safe_wandb_finish():
         print(f"[wandb] Failed to finish run: {err}")
 
 
-def _make_dice_agent(agent):
+def _make_dice_agent(agent, args):
     """Create the appropriate DiceAgent variant based on the base agent type.
 
     - Continuous (SAC-based)  → ContinuousDiceAgent
     - Discrete  (MaxQ-based)  → DiceAgent
     """
     if isinstance(agent, SAC):
+        if getattr(args.method, "dice_use_cql_q", False) and not isinstance(agent, CQL):
+            raise ValueError(
+                "method.dice_use_cql_q=True requires agent=cql in continuous settings."
+            )
         return ContinuousDiceAgent.from_sac(agent)
     return DiceAgent.from_maxq(agent)
 
@@ -142,6 +147,13 @@ def get_args(cfg: DictConfig):
 @hydra.main(config_path="conf", config_name="config")
 def main(cfg: DictConfig):
     args = get_args(cfg)
+    pure_cql_offline = bool(getattr(args.method, "offline_pure_cql", False))
+
+    if args.offline:
+        train_mode = "offline_pure_cql" if pure_cql_offline else "offline_iq"
+    else:
+        train_mode = "online_iq"
+    print(f"[train_mode] {train_mode}")
 
     if args.method.loss == "dice" and not args.offline:
         raise ValueError("method.loss=dice is only supported when offline=True")
@@ -238,24 +250,36 @@ def main(cfg: DictConfig):
     #  Offline training: no environment interaction                       #
     # ------------------------------------------------------------------ #
     if args.offline:
-        agent.iq_update = types.MethodType(iq_update, agent)
-        agent.iq_update_critic = types.MethodType(iq_update_critic, agent)
+        if pure_cql_offline and not isinstance(agent, CQL):
+            raise ValueError(
+                "method.offline_pure_cql=True requires agent=cql."
+            )
+
+        if not pure_cql_offline:
+            agent.iq_update = types.MethodType(iq_update, agent)
+            agent.iq_update_critic = types.MethodType(iq_update_critic, agent)
+
+        pbar_desc = "Offline CQL training" if pure_cql_offline else "Offline IQ training"
+        print(f"[offline_backend] {'pure_cql_update' if pure_cql_offline else 'iq_update'}")
         offline_eval_episode = 0
         offline_pbar = tqdm(
             range(1, LEARN_STEPS + 1),
-            desc="Offline IQ training",
+            desc=pbar_desc,
             dynamic_ncols=True,
         )
 
         for learn_step in offline_pbar:
-            losses = agent.iq_update(
-                online_memory_replay, expert_memory_replay,
-                logger, learn_step)
+            if pure_cql_offline:
+                losses = agent.update(online_memory_replay, logger, learn_step)
+            else:
+                losses = agent.iq_update(
+                    online_memory_replay, expert_memory_replay,
+                    logger, learn_step)
 
             if learn_step % args.log_interval == 0:
                 for key, loss in losses.items():
                     writer.add_scalar(key, loss, global_step=learn_step)
-                critic_loss = losses.get('critic_loss')
+                critic_loss = losses.get('critic_loss', losses.get('loss/critic'))
                 if critic_loss is not None:
                     offline_pbar.set_postfix(
                         critic=f"{float(critic_loss):.4f}",
@@ -264,7 +288,7 @@ def main(cfg: DictConfig):
 
             if learn_step % int(args.env.eval_interval) == 0:
                 if args.method.loss == "dice":
-                    eval_dice = _make_dice_agent(agent)
+                    eval_dice = _make_dice_agent(agent, args)
                     eval_dice.train_weighted_bc(
                         buffer=online_memory_replay, args=args,
                         logger=logger, writer=writer)
@@ -295,7 +319,7 @@ def main(cfg: DictConfig):
 
         if args.method.loss == "dice":
             print('Starting Weighted BC policy extraction...')
-            dice_agent = _make_dice_agent(agent)
+            dice_agent = _make_dice_agent(agent, args)
             dice_agent.train_weighted_bc(
                 buffer=online_memory_replay, args=args,
                 logger=logger, writer=writer)

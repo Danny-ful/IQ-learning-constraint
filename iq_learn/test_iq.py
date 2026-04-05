@@ -13,6 +13,9 @@ import wandb
 from make_envs import make_env
 from agent import make_agent
 from agent.dice_agent import DiceAgent
+from agent.continuous_dice_agent import ContinuousDiceAgent
+from agent.sac import SAC
+from agent.cql import CQL
 from utils.utils import evaluate
 
 def get_args(cfg: DictConfig):
@@ -39,7 +42,14 @@ def main(cfg: DictConfig):
     print(f'Loading policy from: {policy_file}')
 
     if args.method.loss == "dice":
-        dice_agent = DiceAgent.from_maxq(agent)
+        if isinstance(agent, SAC):
+            if getattr(args.method, "dice_use_cql_q", False) and not isinstance(agent, CQL):
+                raise ValueError(
+                    "method.dice_use_cql_q=True requires agent=cql in continuous settings."
+                )
+            dice_agent = ContinuousDiceAgent.from_sac(agent)
+        else:
+            dice_agent = DiceAgent.from_maxq(agent)
         if args.eval.transfer:
             dice_agent.load(hydra.utils.to_absolute_path(policy_file),
                             f'_{name}_{args.eval.expert_env}')
