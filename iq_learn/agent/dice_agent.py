@@ -167,9 +167,12 @@ class DiceAgent(MaxQ):
 
     # ----- dice reward (mirrors iq.py constrain → dice path) -------- #
 
-    def _dice_reward(self, obs, next_obs, action, done, alpha):
+    def _dice_reward(self, obs, next_obs, action, done, alpha, env_reward=None):
         """Compute ``(Q(s,a) - γV(s')) / α`` following the sign
         convention in ``iq.py`` constrain → dice block."""
+        if bool(getattr(self.args.method, "normal_r", False)) and env_reward is not None:
+            return env_reward / alpha
+
         current_Q = self.critic(obs, action)
         next_v = self.get_targetV(next_obs)
         y = (1 - done) * self.gamma * next_v
@@ -239,11 +242,12 @@ class DiceAgent(MaxQ):
         )
 
         for step in bc_pbar:
-            obs, next_obs, action, _, done = buffer.get_samples(
+            obs, next_obs, action, env_reward, done = buffer.get_samples(
                 bc_batch, self.device)
 
             with torch.no_grad():
-                reward = self._dice_reward(obs, next_obs, action, done, alpha)
+                reward = self._dice_reward(
+                    obs, next_obs, action, done, alpha, env_reward=env_reward)
                 ### ensure reward is in valid domain of (f')^{-1} before computing density ratio
                 reward = self.project_reward_to_valid_domain(reward, div, eps=1e-6)
                 weights = self.compute_density_ratio(reward, div)

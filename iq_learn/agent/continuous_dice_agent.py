@@ -81,11 +81,14 @@ class ContinuousDiceAgent(SAC):
 
     # ----- dice reward ------------------------------------------------ #
 
-    def _dice_reward(self, obs, next_obs, action, done, alpha):
+    def _dice_reward(self, obs, next_obs, action, done, alpha, env_reward=None):
         """Compute ``(Q(s,a) - γV(s')) / α`` for continuous actions.
 
         Uses the SAC actor to evaluate V(s') via ``get_targetV``.
         """
+        if bool(getattr(self.args.method, "normal_r", False)) and env_reward is not None:
+            return env_reward / alpha
+
         current_Q = self.critic(obs, action)
         next_v = self.get_targetV(next_obs)
         y = (1 - done) * self.gamma * next_v
@@ -146,11 +149,12 @@ class ContinuousDiceAgent(SAC):
         )
 
         for step in bc_pbar:
-            obs, next_obs, action, _, done = buffer.get_samples(
+            obs, next_obs, action, env_reward, done = buffer.get_samples(
                 bc_batch, self.device)
 
             with torch.no_grad():
-                reward = self._dice_reward(obs, next_obs, action, done, alpha)
+                reward = self._dice_reward(
+                    obs, next_obs, action, done, alpha, env_reward=env_reward)
                 ### ensure reward is in valid domain of (f')^{-1}
                 reward = DiceAgent.project_reward_to_valid_domain(reward, div, eps=1e-6)
                 weights = self.compute_density_ratio(reward, div)
