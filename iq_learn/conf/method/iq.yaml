@@ -24,3 +24,6 @@ method:
 
   # For method.loss=dice in continuous domains, force using CQL critic.
   dice_use_cql_q: false
+
+  # Only for offline + dice: directly fit dataset reward with critic.
+  normal_r: false

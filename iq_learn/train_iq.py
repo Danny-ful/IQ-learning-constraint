@@ -148,6 +148,7 @@ def get_args(cfg: DictConfig):
 def main(cfg: DictConfig):
     args = get_args(cfg)
     pure_cql_offline = bool(getattr(args.method, "offline_pure_cql", False))
+    normal_r_mode = bool(getattr(args.method, "normal_r", False))
 
     if args.offline:
         train_mode = "offline_pure_cql" if pure_cql_offline else "offline_iq"
@@ -157,6 +158,8 @@ def main(cfg: DictConfig):
 
     if args.method.loss == "dice" and not args.offline:
         raise ValueError("method.loss=dice is only supported when offline=True")
+    if normal_r_mode and (not args.offline or args.method.loss != "dice"):
+        raise ValueError("method.normal_r=True is only supported when offline=True and method.loss=dice")
 
     # set seeds
     random.seed(args.seed)
@@ -261,6 +264,8 @@ def main(cfg: DictConfig):
 
         pbar_desc = "Offline CQL training" if pure_cql_offline else "Offline IQ training"
         print(f"[offline_backend] {'pure_cql_update' if pure_cql_offline else 'iq_update'}")
+        if normal_r_mode:
+            print("[dice_mode] normal_r=True: directly fitting reward with SAC critic architecture")
         offline_eval_episode = 0
         offline_pbar = tqdm(
             range(1, LEARN_STEPS + 1),
@@ -521,7 +526,37 @@ def iq_update_critic(self, policy_batch, expert_batch, logger, step):
         expert_batch = expert_obs, expert_next_obs, policy_action, expert_reward, expert_done
 
     batch = get_concat_samples(policy_batch, expert_batch, args)
-    obs, next_obs, action = batch[0:3]
+    obs, next_obs, action, env_reward = batch[0:4]
+
+    if bool(getattr(args.method, "normal_r", False)) and args.offline and args.method.loss == "dice":
+        # In normal_r mode, keep SAC critic architecture and directly regress dataset reward.
+        target_reward = env_reward
+
+        if "DoubleQ" in self.args.q_net._target_:
+            pred_r1, pred_r2 = self.critic(obs, action, both=True)
+            r1_loss = F.mse_loss(pred_r1, target_reward)
+            r2_loss = F.mse_loss(pred_r2, target_reward)
+            critic_loss = 0.5 * (r1_loss + r2_loss)
+            loss_dict = {
+                'normal_r/reward_loss_1': r1_loss.item(),
+                'normal_r/reward_loss_2': r2_loss.item(),
+                'critic_loss': critic_loss.item(),
+                'loss/critic': critic_loss.item(),
+            }
+        else:
+            pred_r = self.critic(obs, action)
+            critic_loss = F.mse_loss(pred_r, target_reward)
+            loss_dict = {
+                'normal_r/reward_loss': critic_loss.item(),
+                'critic_loss': critic_loss.item(),
+                'loss/critic': critic_loss.item(),
+            }
+
+        logger.log('train/critic_loss', critic_loss, step)
+        self.critic_optimizer.zero_grad()
+        critic_loss.backward()
+        self.critic_optimizer.step()
+        return loss_dict
 
     agent = self
     current_V = self.getV(obs)
