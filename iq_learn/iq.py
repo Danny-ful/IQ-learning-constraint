@@ -251,7 +251,7 @@ def iq_loss(agent, current_Q, current_v, next_v, batch):
 
         
         loss += constrain_loss.mean()
-        loss_dict['constrain_loss'] = constrain_loss.item()
+        loss_dict['constrain_loss'] = constrain_loss.mean().item()
 
 
     loss_dict['total_loss'] = loss.item()
