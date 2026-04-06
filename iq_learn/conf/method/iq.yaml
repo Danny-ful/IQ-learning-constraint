@@ -25,5 +25,6 @@ method:
   # For method.loss=dice in continuous domains, force using CQL critic.
   dice_use_cql_q: false
 
-  # Only for offline + dice: directly fit dataset reward with critic.
+  # Only for offline + dice: parameterize the IQ/DICE reward term directly
+  # with the critic architecture instead of learning Q first.
   normal_r: false

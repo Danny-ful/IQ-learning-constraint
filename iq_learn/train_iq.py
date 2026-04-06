@@ -265,7 +265,7 @@ def main(cfg: DictConfig):
         pbar_desc = "Offline CQL training" if pure_cql_offline else "Offline IQ training"
         print(f"[offline_backend] {'pure_cql_update' if pure_cql_offline else 'iq_update'}")
         if normal_r_mode:
-            print("[dice_mode] normal_r=True: directly fitting reward with SAC critic architecture")
+            print("[dice_mode] normal_r=True: directly parameterizing the IQ/DICE reward with the critic architecture")
         offline_eval_episode = 0
         offline_pbar = tqdm(
             range(1, LEARN_STEPS + 1),
@@ -528,29 +528,38 @@ def iq_update_critic(self, policy_batch, expert_batch, logger, step):
     batch = get_concat_samples(policy_batch, expert_batch, args)
     obs, next_obs, action, env_reward = batch[0:4]
 
+    current_V = self.getV(obs)
+    if args.train.use_target:
+        with torch.no_grad():
+            next_V = self.get_targetV(next_obs)
+    else:
+        next_V = self.getV(next_obs)
+
     if bool(getattr(args.method, "normal_r", False)) and args.offline and args.method.loss == "dice":
-        # In normal_r mode, keep SAC critic architecture and directly regress dataset reward.
-        target_reward = env_reward
+        # In normal_r mode, keep the critic architecture fixed but let it
+        # parameterize the reward term used inside IQ/DICE directly.
+        # We convert the reward head into a synthetic Q via Q := r + gamma V'
+        # so iq_loss can be reused unchanged; every (Q - gamma V') term then
+        # reduces back to the learned reward.
+        y = (1 - batch[4]) * self.gamma * next_V
 
         if "DoubleQ" in self.args.q_net._target_:
             pred_r1, pred_r2 = self.critic(obs, action, both=True)
-            r1_loss = F.mse_loss(pred_r1, target_reward)
-            r2_loss = F.mse_loss(pred_r2, target_reward)
-            critic_loss = 0.5 * (r1_loss + r2_loss)
-            loss_dict = {
-                'normal_r/reward_loss_1': r1_loss.item(),
-                'normal_r/reward_loss_2': r2_loss.item(),
-                'critic_loss': critic_loss.item(),
-                'loss/critic': critic_loss.item(),
-            }
+            q1_loss, loss_dict1 = iq_loss(self, pred_r1 + y, current_V, next_V, batch)
+            q2_loss, loss_dict2 = iq_loss(self, pred_r2 + y, current_V, next_V, batch)
+            critic_loss = 1 / 2 * (q1_loss + q2_loss)
+            loss_dict = average_dicts(loss_dict1, loss_dict2)
+            loss_dict.update({
+                'normal_r/pred_reward_1': pred_r1.mean().item(),
+                'normal_r/pred_reward_2': pred_r2.mean().item(),
+            })
         else:
             pred_r = self.critic(obs, action)
-            critic_loss = F.mse_loss(pred_r, target_reward)
-            loss_dict = {
-                'normal_r/reward_loss': critic_loss.item(),
-                'critic_loss': critic_loss.item(),
-                'loss/critic': critic_loss.item(),
-            }
+            critic_loss, loss_dict = iq_loss(self, pred_r + y, current_V, next_V, batch)
+            loss_dict['normal_r/pred_reward'] = pred_r.mean().item()
+
+        loss_dict['critic_loss'] = critic_loss.item()
+        loss_dict['loss/critic'] = critic_loss.item()
 
         logger.log('train/critic_loss', critic_loss, step)
         self.critic_optimizer.zero_grad()
@@ -559,12 +568,6 @@ def iq_update_critic(self, policy_batch, expert_batch, logger, step):
         return loss_dict
 
     agent = self
-    current_V = self.getV(obs)
-    if args.train.use_target:
-        with torch.no_grad():
-            next_V = self.get_targetV(next_obs)
-    else:
-        next_V = self.getV(next_obs)
 
     if "DoubleQ" in self.args.q_net._target_:
         current_Q1, current_Q2 = self.critic(obs, action, both=True)

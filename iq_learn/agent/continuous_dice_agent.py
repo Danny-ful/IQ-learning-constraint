@@ -82,12 +82,14 @@ class ContinuousDiceAgent(SAC):
     # ----- dice reward ------------------------------------------------ #
 
     def _dice_reward(self, obs, next_obs, action, done, alpha, env_reward=None):
-        """Compute ``(Q(s,a) - γV(s')) / α`` for continuous actions.
+        """Compute the reward surrogate consumed by weighted BC.
 
-        Uses the SAC actor to evaluate V(s') via ``get_targetV``.
+        In ``normal_r`` mode the critic itself parameterizes the reward
+        term used by IQ/DICE; otherwise we recover the usual Bellman
+        residual using the SAC value estimate.
         """
-        if bool(getattr(self.args.method, "normal_r", False)) and env_reward is not None:
-            return env_reward / alpha
+        if bool(getattr(self.args.method, "normal_r", False)):
+            return self.critic(obs, action) / alpha
 
         current_Q = self.critic(obs, action)
         next_v = self.get_targetV(next_obs)

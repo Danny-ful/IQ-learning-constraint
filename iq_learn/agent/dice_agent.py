@@ -103,6 +103,7 @@ class DiceAgent(MaxQ):
     
     # ----- projection of reward to valid domain (for computing density ratio) -- #
 
+    @staticmethod
     def project_reward_to_valid_domain(reward, div, eps=1e-6):
         """
         Project reward into the valid domain of (f')^{-1}, with a small margin eps.
@@ -168,10 +169,14 @@ class DiceAgent(MaxQ):
     # ----- dice reward (mirrors iq.py constrain → dice path) -------- #
 
     def _dice_reward(self, obs, next_obs, action, done, alpha, env_reward=None):
-        """Compute ``(Q(s,a) - γV(s')) / α`` following the sign
-        convention in ``iq.py`` constrain → dice block."""
-        if bool(getattr(self.args.method, "normal_r", False)) and env_reward is not None:
-            return env_reward / alpha
+        """Compute the reward surrogate consumed by weighted BC.
+
+        In ``normal_r`` mode the critic itself parameterizes the reward
+        term used by IQ/DICE; otherwise we recover the usual Bellman
+        residual ``Q(s,a) - γV(s')``.
+        """
+        if bool(getattr(self.args.method, "normal_r", False)):
+            return self.critic(obs, action) / alpha
 
         current_Q = self.critic(obs, action)
         next_v = self.get_targetV(next_obs)

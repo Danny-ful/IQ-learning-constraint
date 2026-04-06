@@ -88,10 +88,7 @@ def iq_loss(agent, current_Q, current_v, next_v, batch):
         # alternate sampling using only initial states (works offline but usually suboptimal than `value_expert` startegy)
         # (1-γ)E_(ρ0)[V(s0)]
         y = (1 - done) * gamma * next_v
-        if bool(getattr(args.method, "normal_r", False)):
-            reward = env_reward / args.method.alpha
-        else:
-            reward = (current_Q - y) / args.method.alpha
+        reward = (current_Q - y) / args.method.alpha
         
         with torch.no_grad():
                 # Use different divergence functions (For χ2 divergence we instead add a third bellmann error-like term)
@@ -225,10 +222,7 @@ def iq_loss(agent, current_Q, current_v, next_v, batch):
 
         if args.method.loss == "dice":
 
-            if bool(getattr(args.method, "normal_r", False)):
-                reward = env_reward / args.method.alpha
-            else:
-                reward = - reward / args.method.alpha
+            reward = - reward / args.method.alpha
 
             if args.method.div == "hellinger":
                 constrain_loss += (torch.relu(reward - 1))**2
