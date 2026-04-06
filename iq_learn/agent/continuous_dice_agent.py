@@ -81,7 +81,7 @@ class ContinuousDiceAgent(SAC):
 
     # ----- dice reward ------------------------------------------------ #
 
-    def _dice_reward(self, obs, next_obs, action, done, alpha, env_reward=None):
+    def _dice_reward(self, obs, next_obs, action, done, dice_alpha, env_reward=None):
         """Compute the reward surrogate consumed by weighted BC.
 
         In ``normal_r`` mode the critic itself parameterizes the reward
@@ -89,12 +89,12 @@ class ContinuousDiceAgent(SAC):
         residual using the SAC value estimate.
         """
         if bool(getattr(self.args.method, "normal_r", False)):
-            return self.critic(obs, action) / alpha
+            return self.critic(obs, action) / dice_alpha
 
         current_Q = self.critic(obs, action)
         next_v = self.get_targetV(next_obs)
         y = (1 - done) * self.gamma * next_v
-        reward = (current_Q - y) / alpha
+        reward = (current_Q - y) / dice_alpha
         return reward
 
     # ----- weighted BC training --------------------------------------- #
@@ -121,6 +121,7 @@ class ContinuousDiceAgent(SAC):
         bc_log_interval   500     print / tensorboard log frequency
         bc_hidden_dim     256     hidden-layer width of the actor MLP
         bc_hidden_depth   2       hidden-layer depth of the actor MLP
+        dice_alpha        0.05    DICE reward scaling (falls back to ``alpha``)
         ================= ======= ====================================
         """
         bc_steps = int(getattr(args.method, "bc_steps", 10000))
@@ -129,7 +130,8 @@ class ContinuousDiceAgent(SAC):
         bc_log_interval = int(getattr(args.method, "bc_log_interval", 500))
         hidden_dim = int(getattr(args.method, "bc_hidden_dim", 256))
         hidden_depth = int(getattr(args.method, "bc_hidden_depth", 2))
-        alpha = args.method.alpha
+        dice_alpha = float(
+            getattr(args.method, "dice_alpha", getattr(args.method, "alpha", 0.05)))
         div = args.method.div
 
         action_dim = args.agent.action_dim
@@ -156,7 +158,7 @@ class ContinuousDiceAgent(SAC):
 
             with torch.no_grad():
                 reward = self._dice_reward(
-                    obs, next_obs, action, done, alpha, env_reward=env_reward)
+                    obs, next_obs, action, done, dice_alpha, env_reward=env_reward)
                 ### ensure reward is in valid domain of (f')^{-1}
                 reward = DiceAgent.project_reward_to_valid_domain(reward, div, eps=1e-6)
                 weights = self.compute_density_ratio(reward, div)

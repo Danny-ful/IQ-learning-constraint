@@ -12,6 +12,9 @@ method:
   div:
 
   alpha: 0.05
+  # Scaling for DICE loss / weighted-BC dice reward (iq.loss=dice, constrain+dice, DiceAgent BC).
+  # Falls back to `alpha` if omitted (backward compatible).
+  dice_alpha: 0.05
   lambda_gp: 10
   mix_coeff: 1
 

@@ -168,7 +168,7 @@ class DiceAgent(MaxQ):
 
     # ----- dice reward (mirrors iq.py constrain → dice path) -------- #
 
-    def _dice_reward(self, obs, next_obs, action, done, alpha, env_reward=None):
+    def _dice_reward(self, obs, next_obs, action, done, dice_alpha, env_reward=None):
         """Compute the reward surrogate consumed by weighted BC.
 
         In ``normal_r`` mode the critic itself parameterizes the reward
@@ -176,7 +176,7 @@ class DiceAgent(MaxQ):
         residual ``Q(s,a) - γV(s')``.
         """
         if bool(getattr(self.args.method, "normal_r", False)):
-            return self.critic(obs, action) / alpha
+            return self.critic(obs, action) / dice_alpha
 
         current_Q = self.critic(obs, action)
         next_v = self.get_targetV(next_obs)
@@ -196,7 +196,7 @@ class DiceAgent(MaxQ):
         # else:
         #     reward = -reward
 
-        reward = reward / alpha
+        reward = reward / dice_alpha
         return reward
 
     # ----- weighted BC training ------------------------------------- #
@@ -222,6 +222,7 @@ class DiceAgent(MaxQ):
         bc_batch         256     mini-batch size
         bc_log_interval  500     print / tensorboard log frequency
         bc_hidden_dim    128     hidden-layer width of the actor MLP
+        dice_alpha       0.05    DICE reward scaling (falls back to ``alpha``)
         ================ ======= ====================================
         """
         bc_steps = int(getattr(args.method, "bc_steps", 10000))
@@ -229,7 +230,8 @@ class DiceAgent(MaxQ):
         bc_batch = int(getattr(args.method, "bc_batch", 256))
         bc_log_interval = int(getattr(args.method, "bc_log_interval", 500))
         hidden_dim = int(getattr(args.method, "bc_hidden_dim", 128))
-        alpha = args.method.alpha
+        dice_alpha = float(
+            getattr(args.method, "dice_alpha", getattr(args.method, "alpha", 0.05)))
         div = args.method.div
 
         self.actor = PolicyNetwork(
@@ -252,7 +254,7 @@ class DiceAgent(MaxQ):
 
             with torch.no_grad():
                 reward = self._dice_reward(
-                    obs, next_obs, action, done, alpha, env_reward=env_reward)
+                    obs, next_obs, action, done, dice_alpha, env_reward=env_reward)
                 ### ensure reward is in valid domain of (f')^{-1} before computing density ratio
                 reward = self.project_reward_to_valid_domain(reward, div, eps=1e-6)
                 weights = self.compute_density_ratio(reward, div)

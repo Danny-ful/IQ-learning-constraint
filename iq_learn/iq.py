@@ -3,9 +3,15 @@ Copyright 2022 Div Garg. All rights reserved.
 
 Standalone IQ-Learn algorithm. See LICENSE for licensing terms.
 """
-from this import d
+import math
+
 import torch
 import torch.nn.functional as F
+
+
+def _dice_alpha(method):
+    """DICE scaling; ``method.dice_alpha`` with fallback to legacy ``method.alpha``."""
+    return float(getattr(method, "dice_alpha", getattr(method, "alpha", 0.05)))
 
 
 # Full IQ-Learn objective with other divergences and options
@@ -87,8 +93,9 @@ def iq_loss(agent, current_Q, current_v, next_v, batch):
     elif args.method.loss == "dice":
         # alternate sampling using only initial states (works offline but usually suboptimal than `value_expert` startegy)
         # (1-γ)E_(ρ0)[V(s0)]
+        dice_alpha = _dice_alpha(args.method)
         y = (1 - done) * gamma * next_v
-        reward = (current_Q - y) / args.method.alpha
+        reward = (current_Q - y) / dice_alpha
         
         with torch.no_grad():
                 # Use different divergence functions (For χ2 divergence we instead add a third bellmann error-like term)
@@ -109,7 +116,7 @@ def iq_loss(agent, current_Q, current_v, next_v, batch):
                     phi_grad = - torch.exp(reward)/(2 - torch.exp(reward))
                 else:
                     phi_grad = 1
-        dice_loss = (args.method.alpha * (phi_grad * reward)).mean()
+        dice_loss = (dice_alpha * (phi_grad * reward)).mean()
 
         loss += dice_loss
         loss_dict['dice'] = dice_loss.item()
@@ -216,13 +223,13 @@ def iq_loss(agent, current_Q, current_v, next_v, batch):
             constrain_loss = (torch.relu(-2 - reward))**2
         elif args.method.div == "js":
             # jensen–shannon
-            constrain_loss = (torch.relu(reward - torch.loh(2)))**2
+            constrain_loss = (torch.relu(reward - math.log(2.0)))**2
         else:
             constrain_loss = (torch.relu(reward - 1))**2 + (torch.relu(-1 - reward))**2
 
         if args.method.loss == "dice":
-
-            reward = - reward / args.method.alpha
+            dice_alpha = _dice_alpha(args.method)
+            reward = - reward / dice_alpha
 
             if args.method.div == "hellinger":
                 constrain_loss += (torch.relu(reward - 1))**2
