@@ -233,7 +233,7 @@ def iq_loss(agent, current_Q, current_v, next_v, batch):
             # phi_grad = 1/(1+reward)**2
         elif args.method.div == "kl":
             # original dual form for kl divergence (sub optimal)
-            constrain_loss = 0
+            constrain_loss = torch.zeros_like(reward)
         elif args.method.div == "kl2":
             # biased dual form for kl divergence
             constrain_loss = (torch.relu(reward))**2
@@ -254,15 +254,15 @@ def iq_loss(agent, current_Q, current_v, next_v, batch):
                 # phi_grad = 1/(1+reward)**2
             elif args.method.div == "kl":
                 # original dual form for kl divergence (sub optimal)
-                constrain_loss = 0
+                constrain_loss = torch.zeros_like(reward)
             elif args.method.div == "kl2":
                 # biased dual form for kl divergence
-                constrain_loss = 0
+                constrain_loss = torch.zeros_like(reward)
             elif args.method.div == "chi":
                 constrain_loss += (torch.relu(-2 - reward))**2
             elif args.method.div == "js":
                 # jensen–shannon
-                constrain_loss += (torch.relu(reward - torch.log(2)))**2
+                constrain_loss += (torch.relu(reward - math.log(2.0)))**2
             else:
                 constrain_loss += (torch.relu(reward - 1))**2 + (torch.relu(-1 - reward))**2
 
