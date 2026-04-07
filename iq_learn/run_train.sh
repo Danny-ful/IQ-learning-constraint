@@ -2,7 +2,6 @@
 
 # --- 1. 解决挂载延迟 ---
 # 强制等待 15 秒，确保 /home/ubuntu 下的硬盘已经挂载成功
-sleep 15
 
 # --- 2. 解决路径和权限问题 ---
 # 确保即使是 root 身份，也能强制使用 ubuntu 用户的环境
@@ -35,3 +34,121 @@ python train_iq.py \
     method.normal_r=true \
     method.constrain=true \
     method.div=kl
+
+
+python train_iq.py \
+    env=hopper \
+    agent=sac \
+    expert.demos=1 \
+    expert.offline_demos=1 \
+    offline=True \
+    method.loss=dice \
+    seed=0 \
+    method.normal_r=true \
+    method.constrain=true \
+    method.div=kl \
+    method.bc_lr=3e-4 \
+    agent.critic_lr=5e-5 \
+    method.dice_alpha=0.05
+
+python train_iq.py \
+    env=hopper \
+    agent=sac \
+    expert.demos=1 \
+    expert.offline_demos=1 \
+    offline=True \
+    method.loss=dice \
+    seed=0 \
+    method.normal_r=true \
+    method.constrain=true \
+    method.div=kl \
+    method.bc_lr=1e-4 \
+    agent.critic_lr=5e-5 \
+    method.dice_alpha=0.05
+
+python train_iq.py \
+    env=hopper \
+    agent=sac \
+    expert.demos=1 \
+    expert.offline_demos=1 \
+    offline=True \
+    method.loss=dice \
+    seed=0 \
+    method.normal_r=true \
+    method.constrain=true \
+    method.div=kl \
+    method.bc_lr=1e-4 \
+    agent.critic_lr=1e-4 \
+    method.dice_alpha=0.05
+
+python train_iq.py \
+    env=hopper \
+    agent=sac \
+    expert.demos=1 \
+    expert.offline_demos=1 \
+    offline=True \
+    method.loss=dice \
+    seed=0 \
+    method.normal_r=true \
+    method.constrain=true \
+    method.div=kl \
+    method.bc_lr=1e-4 \
+    agent.critic_lr=1e-4 \
+    method.dice_alpha=0.1
+
+python train_iq.py \
+    env=hopper \
+    agent=sac \
+    expert.demos=1 \
+    expert.offline_demos=1 \
+    offline=True \
+    method.loss=dice \
+    seed=0 \
+    method.normal_r=true \
+    method.constrain=true \
+    method.div=chi \
+    method.bc_lr=1e-4 \
+    agent.critic_lr=1e-4 \
+    method.dice_alpha=0.1
+
+python train_iq.py \
+    env=hopper \
+    agent=sac \
+    expert.demos=1 \
+    expert.offline_demos=1 \
+    offline=True \
+    method.loss=dice \
+    seed=0 \
+    method.normal_r=true \
+    method.constrain=true \
+    method.div=chi \
+    method.bc_lr=1e-4 \
+    agent.critic_lr=1e-4 \
+    method.dice_alpha=0.05
+
+python train_iq.py \
+    env=hopper \
+    agent=sac \
+    expert.demos=1 \
+    expert.offline_demos=1 \
+    offline=True \
+    method.loss=dice \
+    seed=0 \
+    method.normal_r=true \
+    method.constrain=true \
+    method.div=chi \
+    method.bc_lr=1e-4 \
+    agent.critic_lr=5e-5 \
+    method.dice_alpha=0.05
+
+python train_iq.py \
+    env=hopper \
+    agent=sac \
+    expert.demos=1 \
+    expert.offline_demos=1 \
+    offline=True \
+    method.loss=dice \
+    seed=0 \
+    method.normal_r=true \
+    method.constrain=true \
+    method.div=chi
