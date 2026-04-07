@@ -137,6 +137,45 @@ def sync_progress_bar(progress_bar, step, **postfix):
         progress_bar.set_postfix(postfix)
 
 
+def _is_finite_tensor(tensor):
+    return bool(torch.isfinite(tensor).all().item())
+
+
+def _safe_backward_step(optimizer, params, loss, max_grad_norm, logger=None, step=None, prefix=None):
+    if not _is_finite_tensor(loss):
+        if logger is not None and step is not None and prefix is not None:
+            logger.log(f'{prefix}/non_finite_loss', 1.0, step)
+        optimizer.zero_grad(set_to_none=True)
+        return False, None
+
+    optimizer.zero_grad()
+    loss.backward()
+
+    params = [param for param in params if param.requires_grad]
+    grads = [param.grad for param in params if param.grad is not None]
+    if any(not torch.isfinite(grad).all() for grad in grads):
+        if logger is not None and step is not None and prefix is not None:
+            logger.log(f'{prefix}/non_finite_grad', 1.0, step)
+        optimizer.zero_grad(set_to_none=True)
+        return False, None
+
+    grad_norm = None
+    if grads and max_grad_norm is not None and max_grad_norm > 0:
+        grad_norm = torch.nn.utils.clip_grad_norm_(params, max_grad_norm)
+        if not _is_finite_tensor(torch.as_tensor(grad_norm)):
+            if logger is not None and step is not None and prefix is not None:
+                logger.log(f'{prefix}/non_finite_grad_norm', 1.0, step)
+            optimizer.zero_grad(set_to_none=True)
+            return False, None
+
+    optimizer.step()
+
+    if grad_norm is not None and logger is not None and step is not None and prefix is not None:
+        logger.log(f'{prefix}/grad_norm', grad_norm, step)
+
+    return True, grad_norm
+
+
 def get_args(cfg: DictConfig):
     cfg.device = "cuda:0" if torch.cuda.is_available() else "cpu"
     cfg.hydra_base_dir = os.getcwd()
@@ -582,9 +621,18 @@ def iq_update_critic(self, policy_batch, expert_batch, logger, step):
         loss_dict['loss/critic'] = critic_loss.item()
 
         logger.log('train/critic_loss', critic_loss, step)
-        self.critic_optimizer.zero_grad()
-        critic_loss.backward()
-        self.critic_optimizer.step()
+        critic_grad_clip = float(getattr(self.args.agent, "critic_grad_clip", 10.0))
+        stepped, _ = _safe_backward_step(
+            self.critic_optimizer,
+            self.critic.parameters(),
+            critic_loss,
+            critic_grad_clip,
+            logger=logger,
+            step=step,
+            prefix='train/critic',
+        )
+        if not stepped:
+            logger.log('train/critic_skipped_step', 1.0, step)
         return loss_dict
 
     agent = self
@@ -603,10 +651,18 @@ def iq_update_critic(self, policy_batch, expert_batch, logger, step):
     logger.log('train/critic_loss', critic_loss, step)
 
     # Optimize the critic
-    self.critic_optimizer.zero_grad()
-    critic_loss.backward()
-    # step critic
-    self.critic_optimizer.step()
+    critic_grad_clip = float(getattr(self.args.agent, "critic_grad_clip", 10.0))
+    stepped, _ = _safe_backward_step(
+        self.critic_optimizer,
+        self.critic.parameters(),
+        critic_loss,
+        critic_grad_clip,
+        logger=logger,
+        step=step,
+        prefix='train/critic',
+    )
+    if not stepped:
+        logger.log('train/critic_skipped_step', 1.0, step)
     return loss_dict
 
 

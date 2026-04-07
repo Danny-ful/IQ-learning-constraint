@@ -16,11 +16,13 @@ agent:
   actor_lr: 1e-4
   actor_betas: [0.9, 0.999]
   actor_update_frequency: 1
+  actor_grad_clip: 5.0
 
   critic_lr: 1e-4
   critic_betas: [0.9, 0.999]
   critic_tau: 0.005
   critic_target_update_frequency: 1
+  critic_grad_clip: 10.0
 
   # learn temperature coefficient (disabled by default)
   learn_temp: false

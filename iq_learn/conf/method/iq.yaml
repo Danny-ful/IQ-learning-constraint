@@ -15,6 +15,8 @@ method:
   # Scaling for DICE loss / weighted-BC dice reward (iq.loss=dice, constrain+dice, DiceAgent BC).
   # Falls back to `alpha` if omitted (backward compatible).
   dice_alpha: 0.1
+  # Clip weighted-BC importance weights before re-normalizing them.
+  bc_weight_clip: 20.0
   lambda_gp: 10
   mix_coeff: 1
 

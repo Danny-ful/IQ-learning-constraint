@@ -14,6 +14,15 @@ def _dice_alpha(method):
     return float(getattr(method, "dice_alpha", getattr(method, "alpha", 0.05)))
 
 
+def _project_reward_to_phi_domain(reward, div, eps=1e-6):
+    """Project rewards away from divergence singularities."""
+    if div == "hellinger":
+        return torch.clamp(reward, max=1.0 - eps)
+    if div == "js":
+        return torch.clamp(reward, max=math.log(2.0) - eps)
+    return reward
+
+
 # Full IQ-Learn objective with other divergences and options
 def iq_loss(agent, current_Q, current_v, next_v, batch):
     args = agent.args
@@ -46,10 +55,12 @@ def iq_loss(agent, current_Q, current_v, next_v, batch):
     else:
         reward = -reward
 
+    reward = _project_reward_to_phi_domain(reward, args.method.div)
+
     with torch.no_grad():
         # Use different divergence functions (For χ2 divergence we instead add a third bellmann error-like term)
         if args.method.div == "hellinger":
-            phi_grad = 1/(1-reward)**2
+            phi_grad = 1 / (1 - reward).clamp(min=1e-8) ** 2
             # phi_grad = 1/(1+reward)**2
         elif args.method.div == "kl":
             # original dual form for kl divergence (sub optimal)
@@ -62,7 +73,8 @@ def iq_loss(agent, current_Q, current_v, next_v, batch):
             phi_grad = torch.exp(reward)
         elif args.method.div == "js":
             # jensen–shannon
-            phi_grad = - torch.exp(reward)/(2 - torch.exp(reward))
+            exp_reward = torch.exp(reward)
+            phi_grad = - exp_reward / (2 - exp_reward).clamp(min=1e-8)
         else:
             phi_grad = 1
     loss = (phi_grad * reward).mean()
@@ -97,11 +109,12 @@ def iq_loss(agent, current_Q, current_v, next_v, batch):
         dice_alpha = _dice_alpha(args.method)
         y = (1 - done) * gamma * next_v
         reward = (current_Q - y) / dice_alpha
+        reward = _project_reward_to_phi_domain(reward, args.method.div)
         
         with torch.no_grad():
                 # Use different divergence functions (For χ2 divergence we instead add a third bellmann error-like term)
                 if args.method.div == "hellinger":
-                    phi_grad = 1/(1-reward)**2
+                    phi_grad = 1 / (1 - reward).clamp(min=1e-8) ** 2
                 # phi_grad = 1/(1+reward)**2
                 elif args.method.div == "kl":
                 # original dual form for kl divergence (sub optimal)
@@ -114,7 +127,8 @@ def iq_loss(agent, current_Q, current_v, next_v, batch):
                     phi_grad = torch.exp(reward)
                 elif args.method.div == "js":
                 # jensen–shannon
-                    phi_grad = - torch.exp(reward)/(2 - torch.exp(reward))
+                    exp_reward = torch.exp(reward)
+                    phi_grad = - exp_reward / (2 - exp_reward).clamp(min=1e-8)
                 else:
                     phi_grad = 1
         dice_loss = (dice_alpha * (phi_grad * reward)).mean()
@@ -194,8 +208,6 @@ def iq_loss(agent, current_Q, current_v, next_v, batch):
         chi2_loss = 1/(4 * args.method.alpha) * (reward**2).mean()
         loss += chi2_loss
         loss_dict['regularize_loss'] = chi2_loss.item()
-
-    loss_dict['total_loss'] = loss.item()
 
 
     if args.method.constrain:

@@ -134,6 +134,7 @@ class ContinuousDiceAgent(SAC):
         bc_log_interval = int(getattr(args.method, "bc_log_interval", 500))
         hidden_dim = int(getattr(args.method, "bc_hidden_dim", 256))
         hidden_depth = int(getattr(args.method, "bc_hidden_depth", 2))
+        bc_weight_clip = float(getattr(args.method, "bc_weight_clip", 20.0))
         dice_alpha = float(
             getattr(args.method, "dice_alpha", getattr(args.method, "alpha", 0.05)))
         div = args.method.div
@@ -175,6 +176,7 @@ class ContinuousDiceAgent(SAC):
                 reward = DiceAgent.project_reward_to_valid_domain(
                     reward, div, dice_alpha, eps=1e-6)
                 weights = self.compute_density_ratio(reward, div, dice_alpha)
+                weights = torch.clamp(weights, max=bc_weight_clip)
                 weights = self._normalize_weights(weights)
 
             dist = self.bc_actor(obs)
@@ -198,6 +200,7 @@ class ContinuousDiceAgent(SAC):
                 if writer is not None:
                     writer.add_scalar('bc/loss', bc_loss.item(), step)
                     writer.add_scalar('bc/mean_weight', mean_w, step)
+                    writer.add_scalar('bc/max_weight', weights.max().item(), step)
 
         bc_pbar.close()
         self.critic.train()

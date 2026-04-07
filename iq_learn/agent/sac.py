@@ -8,6 +8,45 @@ import hydra
 from utils.utils import soft_update
 
 
+def _is_finite_tensor(tensor):
+    return bool(torch.isfinite(tensor).all().item())
+
+
+def _safe_backward_step(optimizer, params, loss, max_grad_norm, logger=None, step=None, prefix=None):
+    if not _is_finite_tensor(loss):
+        if logger is not None and step is not None and prefix is not None:
+            logger.log(f'{prefix}/non_finite_loss', 1.0, step)
+        optimizer.zero_grad(set_to_none=True)
+        return False, None
+
+    optimizer.zero_grad()
+    loss.backward()
+
+    params = [param for param in params if param.requires_grad]
+    grads = [param.grad for param in params if param.grad is not None]
+    if any(not torch.isfinite(grad).all() for grad in grads):
+        if logger is not None and step is not None and prefix is not None:
+            logger.log(f'{prefix}/non_finite_grad', 1.0, step)
+        optimizer.zero_grad(set_to_none=True)
+        return False, None
+
+    grad_norm = None
+    if grads and max_grad_norm is not None and max_grad_norm > 0:
+        grad_norm = torch.nn.utils.clip_grad_norm_(params, max_grad_norm)
+        if not _is_finite_tensor(torch.as_tensor(grad_norm)):
+            if logger is not None and step is not None and prefix is not None:
+                logger.log(f'{prefix}/non_finite_grad_norm', 1.0, step)
+            optimizer.zero_grad(set_to_none=True)
+            return False, None
+
+    optimizer.step()
+
+    if grad_norm is not None and logger is not None and step is not None and prefix is not None:
+        logger.log(f'{prefix}/grad_norm', grad_norm, step)
+
+    return True, grad_norm
+
+
 class SAC(object):
     def __init__(self, obs_dim, action_dim, action_range, batch_size, args):
         self.gamma = args.gamma
@@ -119,9 +158,18 @@ class SAC(object):
         critic_loss = q1_loss + q2_loss
 
         # Optimize the critic
-        self.critic_optimizer.zero_grad()
-        critic_loss.backward()
-        self.critic_optimizer.step()
+        critic_grad_clip = float(getattr(self.args.agent, "critic_grad_clip", 10.0))
+        stepped, _ = _safe_backward_step(
+            self.critic_optimizer,
+            self.critic.parameters(),
+            critic_loss,
+            critic_grad_clip,
+            logger=logger,
+            step=step,
+            prefix='train/critic',
+        )
+        if not stepped:
+            logger.log('train/critic_skipped_step', 1.0, step)
 
         # self.critic.log(logger, step)
         return {
@@ -140,9 +188,18 @@ class SAC(object):
         logger.log('train/actor_entropy', -log_prob.mean(), step)
 
         # optimize the actor
-        self.actor_optimizer.zero_grad()
-        actor_loss.backward()
-        self.actor_optimizer.step()
+        actor_grad_clip = float(getattr(self.args.agent, "actor_grad_clip", 5.0))
+        stepped, _ = _safe_backward_step(
+            self.actor_optimizer,
+            self.actor.parameters(),
+            actor_loss,
+            actor_grad_clip,
+            logger=logger,
+            step=step,
+            prefix='train/actor',
+        )
+        if not stepped:
+            logger.log('train/actor_skipped_step', 1.0, step)
 
         losses = {
             'loss/actor': actor_loss.item(),
@@ -151,14 +208,21 @@ class SAC(object):
 
         # self.actor.log(logger, step)
         if self.learn_temp:
-            self.log_alpha_optimizer.zero_grad()
             alpha_loss = (self.alpha *
                           (-log_prob - self.target_entropy).detach()).mean()
             logger.log('train/alpha_loss', alpha_loss, step)
             logger.log('train/alpha_value', self.alpha, step)
-
-            alpha_loss.backward()
-            self.log_alpha_optimizer.step()
+            stepped, _ = _safe_backward_step(
+                self.log_alpha_optimizer,
+                [self.log_alpha],
+                alpha_loss,
+                actor_grad_clip,
+                logger=logger,
+                step=step,
+                prefix='train/alpha',
+            )
+            if not stepped:
+                logger.log('train/alpha_skipped_step', 1.0, step)
 
             losses.update({
                 'alpha_loss/loss': alpha_loss.item(),
