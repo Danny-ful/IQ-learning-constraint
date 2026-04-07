@@ -156,6 +156,10 @@ def iq_loss(agent, current_Q, current_v, next_v, batch):
         # Use χ2 divergence (calculate the regularization term for IQ loss using expert states) (works offline)
         y = (1 - done) * gamma * next_v
 
+        if args.method.loss == "dice":
+            reward = (current_Q - y) / dice_alpha
+            chi2_loss = (dice_alpha / 4)  * (reward**2).mean()
+
         reward = (current_Q - y)[expert_mask]
 
         # Ensemble disagreement penalty (only active when agent carries one)
@@ -172,7 +176,7 @@ def iq_loss(agent, current_Q, current_v, next_v, batch):
         else:
             reward = -reward
 
-        chi2_loss = (1/4) * (reward**2).mean()
+        chi2_loss += (1/4) * (reward**2).mean()
         loss += chi2_loss
         loss_dict['chi2_loss'] = chi2_loss.item()
 

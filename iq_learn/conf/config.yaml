@@ -12,9 +12,9 @@ num_seed_steps: 0 # Don't need seeding for IL (Use 1000 for RL)
 only_expert_states: False
 
 train:
-  batch: 32
-  use_target: False
-  soft_update: False
+  batch: 256
+  use_target: True
+  soft_update: True
 
 expert:
   demos: 1
