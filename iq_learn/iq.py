@@ -19,16 +19,17 @@ def iq_loss(agent, current_Q, current_v, next_v, batch):
     args = agent.args
     gamma = agent.gamma
     obs, next_obs, action, env_reward, done, is_expert = batch
+    expert_mask = is_expert.squeeze(-1)
 
     loss_dict = {}
     # keep track of value of initial states
-    v0 = agent.getV(obs[is_expert.squeeze(1), ...]).mean()
+    v0 = agent.getV(obs[expert_mask, ...]).mean()
     loss_dict['v0'] = v0.item()
 
     #  calculate 1st term for IQ loss
     #  E_(ρ_expert)[f^*(-Q(s, a) + γV(s'))]
     y = (1 - done) * gamma * next_v
-    reward = (current_Q - y)[is_expert]
+    reward = (current_Q - y)[expert_mask]
 
     # Ensemble disagreement penalty (only active when agent carries one)
     ensemble = getattr(agent, "ensemble", None)
@@ -36,8 +37,8 @@ def iq_loss(agent, current_Q, current_v, next_v, batch):
         lambda_pen = getattr(args.method, "lambda_penalty", 0.0)
         if lambda_pen > 0:
             pen = ensemble.penalty(
-                obs[is_expert.squeeze(1), ...],
-                action[is_expert.squeeze(1), ...])
+                obs[expert_mask, ...],
+                action[expert_mask, ...])
             reward = - reward - lambda_pen * pen
             loss_dict['ensemble_penalty'] = pen.mean().item()
         else:
@@ -72,7 +73,7 @@ def iq_loss(agent, current_Q, current_v, next_v, batch):
     if args.method.loss == "value_expert":
         # sample using only expert states (works offline)
         # E_(ρ)[Q(s,a) - γV(s')]
-        value_loss = (current_v - y)[is_expert].mean()
+        value_loss = (current_v - y)[expert_mask].mean()
         loss += value_loss
         loss_dict['value_loss'] = value_loss.item()
 
@@ -143,10 +144,10 @@ def iq_loss(agent, current_Q, current_v, next_v, batch):
 
     if args.method.grad_pen:
         # add a gradient penalty to loss (Wasserstein_1 metric)
-        gp_loss = agent.critic_net.grad_pen(obs[is_expert.squeeze(1), ...],
-                                            action[is_expert.squeeze(1), ...],
-                                            obs[~is_expert.squeeze(1), ...],
-                                            action[~is_expert.squeeze(1), ...],
+        gp_loss = agent.critic_net.grad_pen(obs[expert_mask, ...],
+                                            action[expert_mask, ...],
+                                            obs[~expert_mask, ...],
+                                            action[~expert_mask, ...],
                                             args.method.lambda_gp)
         loss_dict['gp_loss'] = gp_loss.item()
         loss += gp_loss
@@ -155,7 +156,7 @@ def iq_loss(agent, current_Q, current_v, next_v, batch):
         # Use χ2 divergence (calculate the regularization term for IQ loss using expert states) (works offline)
         y = (1 - done) * gamma * next_v
 
-        reward = (current_Q - y)[is_expert]
+        reward = (current_Q - y)[expert_mask]
 
         # Ensemble disagreement penalty (only active when agent carries one)
         ensemble = getattr(agent, "ensemble", None)
@@ -163,15 +164,15 @@ def iq_loss(agent, current_Q, current_v, next_v, batch):
             lambda_pen = getattr(args.method, "lambda_penalty", 0.0)
             if lambda_pen > 0:
                 pen = ensemble.penalty(
-                    obs[is_expert.squeeze(1), ...],
-                    action[is_expert.squeeze(1), ...])
+                    obs[expert_mask, ...],
+                    action[expert_mask, ...])
                 reward = - reward - lambda_pen * pen
             else:
                 reward = -reward
         else:
             reward = -reward
 
-        chi2_loss = (1/4)  * (reward**2)[is_expert].mean()
+        chi2_loss = (1/4) * (reward**2).mean()
         loss += chi2_loss
         loss_dict['chi2_loss'] = chi2_loss.item()
 
