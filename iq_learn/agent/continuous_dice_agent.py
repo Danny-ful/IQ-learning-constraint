@@ -93,12 +93,12 @@ class ContinuousDiceAgent(SAC):
         residual using the SAC value estimate.
         """
         if bool(getattr(self.args.method, "normal_r", False)):
-            return self.critic(obs, action) / dice_alpha
+            return self.critic(obs, action)
 
         current_Q = self.critic(obs, action)
         next_v = self.get_targetV(next_obs)
         y = (1 - done) * self.gamma * next_v
-        reward = (current_Q - y) / dice_alpha
+        reward = current_Q - y
         return reward
 
     # ----- weighted BC training --------------------------------------- #
@@ -172,8 +172,9 @@ class ContinuousDiceAgent(SAC):
                 reward = self._dice_reward(
                     obs, next_obs, action, done, dice_alpha, env_reward=env_reward)
                 ### ensure reward is in valid domain of (f')^{-1}
-                reward = DiceAgent.project_reward_to_valid_domain(reward, div, eps=1e-6)
-                weights = self.compute_density_ratio(reward, div)
+                reward = DiceAgent.project_reward_to_valid_domain(
+                    reward, div, dice_alpha, eps=1e-6)
+                weights = self.compute_density_ratio(reward, div, dice_alpha)
                 weights = self._normalize_weights(weights)
 
             dist = self.bc_actor(obs)

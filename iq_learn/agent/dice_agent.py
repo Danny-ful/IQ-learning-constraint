@@ -108,13 +108,10 @@ class DiceAgent(MaxQ):
     # ----- projection of reward to valid domain (for computing density ratio) -- #
 
     @staticmethod
-    def project_reward_to_valid_domain(reward, div, eps=1e-6):
+    def project_reward_to_valid_domain(reward, div, dice_alpha, eps=1e-6):
         """
         Project reward into the valid domain of (f')^{-1}, with a small margin eps.
         """
-        dice_alpha = float(
-            getattr(args.method, "dice_alpha", getattr(args.method, "alpha", 0.05)))
-
         if div == "hellinger":
             # valid domain: - reward < 1 & reward/dice_alpha < 1
             # if reward >= 1, then restrict to 1 - eps.
@@ -146,7 +143,7 @@ class DiceAgent(MaxQ):
     # ----- density-ratio computation -------------------------------- #
 
     @staticmethod
-    def compute_density_ratio(reward, div):
+    def compute_density_ratio(reward, div, dice_alpha):
         r"""Return :math:`\max\{0,\;(f')^{-1}(\text{reward})\}`.
 
         Parameters
@@ -156,9 +153,6 @@ class DiceAgent(MaxQ):
         div : str or None
             Name of the f-divergence (matches ``args.method.div``).
         """
-        dice_alpha = float(
-            getattr(args.method, "dice_alpha", getattr(args.method, "alpha", 0.05)))
-
         reward = reward / dice_alpha
 
         if div == "hellinger":
@@ -268,8 +262,9 @@ class DiceAgent(MaxQ):
                 reward = self._dice_reward(
                     obs, next_obs, action, done, dice_alpha, env_reward=env_reward)
                 ### ensure reward is in valid domain of (f')^{-1} before computing density ratio
-                reward = self.project_reward_to_valid_domain(reward, div, eps=1e-6)
-                weights = self.compute_density_ratio(reward, div)
+                reward = self.project_reward_to_valid_domain(
+                    reward, div, dice_alpha, eps=1e-6)
+                weights = self.compute_density_ratio(reward, div, dice_alpha)
                 weights = self.normalize_weights(weights)
 
             log_prob = self.actor.get_log_prob(obs, action)

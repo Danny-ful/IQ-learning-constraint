@@ -155,10 +155,11 @@ def iq_loss(agent, current_Q, current_v, next_v, batch):
     if args.method.div == "chi" or args.method.chi:  # TODO: Deprecate method.chi argument for method.div
         # Use χ2 divergence (calculate the regularization term for IQ loss using expert states) (works offline)
         y = (1 - done) * gamma * next_v
+        chi2_loss = 0
 
         if args.method.loss == "dice":
             reward = (current_Q - y) / dice_alpha
-            chi2_loss = (dice_alpha / 4)  * (reward**2).mean()
+            chi2_loss += (dice_alpha / 4)  * (reward**2).mean()
 
         reward = (current_Q - y)[expert_mask]
 
