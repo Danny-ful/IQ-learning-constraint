@@ -1,27 +1,29 @@
 #!/bin/bash
 
-# 1. 设置错误日志输出（如果执行失败，你可以去 /home/ubuntu/train_debug.log 查看原因）
-exec > /home/ubuntu/train_debug.log 2>&1
-set -x  # 开启调试模式，记录每一步执行过程
+# --- 1. 解决挂载延迟 ---
+# 强制等待 15 秒，确保 /home/ubuntu 下的硬盘已经挂载成功
+sleep 15
 
-# 2. 初始化 Conda 环境变量（这是非交互式脚本能用 conda activate 的关键）
-# 注意：请确保 /home/ubuntu/laiwenqi/anaconda3 是你的安装路径
-CONDA_PATH="/home/ubuntu/laiwenqi/anaconda3/etc/profile.d/conda.sh"
-if [ -f "$CONDA_PATH" ]; then
-    source "$CONDA_PATH"
+# --- 2. 解决路径和权限问题 ---
+# 确保即使是 root 身份，也能强制使用 ubuntu 用户的环境
+export USER=ubuntu
+export HOME=/home/ubuntu
+cd /home/ubuntu/laiwenqi/projects/IQ-learning-constraint/iq_learn || exit 1
+
+# --- 3. 彻底初始化 Conda ---
+# 不要依赖系统的 PATH，直接手动指认 conda.sh
+CONDA_PROFILE="/home/ubuntu/laiwenqi/anaconda3/etc/profile.d/conda.sh"
+if [ -f "$CONDA_PROFILE" ]; then
+    source "$CONDA_PROFILE"
+    conda activate IQ
 else
-    echo "Error: Conda profile.d script not found at $CONDA_PATH"
-    exit 1
+    # 如果路径不对，尝试另一个可能的路径
+    source /home/ubuntu/anaconda3/etc/profile.d/conda.sh
+    conda activate IQ
 fi
 
-# 3. 激活虚拟环境
-conda activate IQ
-
-# 4. 切换到项目目录，如果失败则退出，防止在错误目录下执行
-cd /home/ubuntu/laiwenqi/projects/IQ-learning-constraint/iq_learn || { echo "Directory not found"; exit 1; }
-
-# 5. 执行训练
-# 这里直接用 python，因为上面已经 source 并 activate 了，系统会自动寻找 IQ 环境的 python
+# --- 4. 运行程序 ---
+# 加上全路径，确保万无一失
 python train_iq.py \
     env=hopper \
     agent=sac \
@@ -33,5 +35,3 @@ python train_iq.py \
     method.normal_r=true \
     method.constrain=true \
     method.div=kl
-
-echo "Training task finished at $(date)"
