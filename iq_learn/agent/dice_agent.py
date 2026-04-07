@@ -112,10 +112,13 @@ class DiceAgent(MaxQ):
         """
         Project reward into the valid domain of (f')^{-1}, with a small margin eps.
         """
+        dice_alpha = float(
+            getattr(args.method, "dice_alpha", getattr(args.method, "alpha", 0.05)))
+
         if div == "hellinger":
-            # valid domain: reward < 1
+            # valid domain: - reward < 1 & reward/dice_alpha < 1
             # if reward >= 1, then restrict to 1 - eps.
-            reward = torch.clamp(reward, max=1.0 - eps)
+            reward = torch.clamp(reward, min=-1.0 + eps, max=dice_alpha - eps)
 
         elif div == "kl":
             # valid domain: all real numbers
@@ -124,19 +127,19 @@ class DiceAgent(MaxQ):
         elif div == "kl2":
             # valid domain: reward < 0
             # if reward >= 0, then restrict to -eps.
-            reward = torch.clamp(reward, max=-eps)
+            pass
 
         elif div == "kl_fix":
             # valid domain is all real numbers
             pass
 
         elif div == "js":
-            # valid domain: reward < log 2
-            reward = torch.clamp(reward, max=torch.log(2.0) - eps)
+            # valid domain: - reward < log 2 & reward/dice_alpha < log 2
+            reward = torch.clamp(reward, min=- torch.log(2.0) + eps,max=dice_alpha * torch.log(2.0) - eps)
 
         elif div == "chi":
-            # valid domain: reward >= -2
-            reward = torch.clamp(reward, min=-2.0 + eps)
+            # valid domain: - reward >= -2 & reward/dice_alpha >= -2
+            reward = torch.clamp(reward, min=dice_alpha * -2.0 + eps, max= 2.0 - eps)
 
         return reward
    
@@ -153,6 +156,11 @@ class DiceAgent(MaxQ):
         div : str or None
             Name of the f-divergence (matches ``args.method.div``).
         """
+        dice_alpha = float(
+            getattr(args.method, "dice_alpha", getattr(args.method, "alpha", 0.05)))
+
+        reward = reward / dice_alpha
+
         if div == "hellinger":
             ratio = 1.0 / (1.0 - reward).clamp(min=1e-8) ** 2
         elif div == "kl":
@@ -180,7 +188,7 @@ class DiceAgent(MaxQ):
         residual ``Q(s,a) - γV(s')``.
         """
         if bool(getattr(self.args.method, "normal_r", False)):
-            return self.critic(obs, action) / dice_alpha
+            return self.critic(obs, action)
 
         current_Q = self.critic(obs, action)
         next_v = self.get_targetV(next_obs)
@@ -200,7 +208,6 @@ class DiceAgent(MaxQ):
         # else:
         #     reward = -reward
 
-        reward = reward / dice_alpha
         return reward
 
     # ----- weighted BC training ------------------------------------- #
