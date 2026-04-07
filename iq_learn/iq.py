@@ -14,12 +14,34 @@ def _dice_alpha(method):
     return float(getattr(method, "dice_alpha", getattr(method, "alpha", 0.05)))
 
 
-def _project_reward_to_phi_domain(reward, div, eps=1e-6):
+def _project_reward_to_phi_domain(reward, div, dice_alpha, eps=1e-6):
     """Project rewards away from divergence singularities."""
     if div == "hellinger":
-        return torch.clamp(reward, max=1.0 - eps)
-    if div == "js":
-        return torch.clamp(reward, max=math.log(2.0) - eps)
+        # valid domain: - reward < 1 & reward/dice_alpha < 1
+        # if reward >= 1, then restrict to 1 - eps.
+        reward = torch.clamp(reward, min=-1.0 + eps, max=dice_alpha - eps)
+
+    elif div == "kl":
+        # valid domain: all real numbers
+        pass
+
+    elif div == "kl2":
+        # valid domain: reward < 0
+        # if reward >= 0, then restrict to -eps.
+        pass
+
+    elif div == "kl_fix":
+        # valid domain is all real numbers
+        pass
+
+    elif div == "js":
+        # valid domain: - reward < log 2 & reward/dice_alpha < log 2
+        reward = torch.clamp(reward, min=- torch.log(2.0) + eps,max=dice_alpha * torch.log(2.0) - eps)
+
+    elif div == "chi":
+        # valid domain: - reward >= -2 & reward/dice_alpha >= -2
+        reward = torch.clamp(reward, min=dice_alpha * -2.0 + eps, max= 2.0 - eps)
+
     return reward
 
 
@@ -54,8 +76,6 @@ def iq_loss(agent, current_Q, current_v, next_v, batch):
             reward = -reward
     else:
         reward = -reward
-
-    reward = _project_reward_to_phi_domain(reward, args.method.div)
 
     with torch.no_grad():
         # Use different divergence functions (For χ2 divergence we instead add a third bellmann error-like term)
@@ -108,8 +128,13 @@ def iq_loss(agent, current_Q, current_v, next_v, batch):
         # (1-γ)E_(ρ0)[V(s0)]
         dice_alpha = _dice_alpha(args.method)
         y = (1 - done) * gamma * next_v
-        reward = (current_Q - y) / dice_alpha
-        reward = _project_reward_to_phi_domain(reward, args.method.div)
+        reward = current_Q - y
+
+        if not args.method.constrain:
+            reward = _project_reward_to_phi_domain(reward, args.method.div, dice_alpha)
+
+        reward = reward / dice_alpha
+
         
         with torch.no_grad():
                 # Use different divergence functions (For χ2 divergence we instead add a third bellmann error-like term)
