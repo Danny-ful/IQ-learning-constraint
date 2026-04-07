@@ -200,38 +200,58 @@ def main(cfg: DictConfig):
         else:
             print("[Attention]: Did not find checkpoint {}".format(args.pretrain))
 
+    # Track sampled trajectory ids per dataset basename so repeated loads from
+    # the same source file (for example experts/ and supplement/ copies) can be
+    # kept disjoint within a run.
+    sampled_traj_indices = {}
+
     # Load expert data
+    expert_demo_name = os.path.basename(args.env.demo)
+    expert_demo_path = hydra.utils.to_absolute_path(f'experts/{expert_demo_name}')
     expert_memory_replay = Memory(REPLAY_MEMORY//2, args.seed)
-    expert_memory_replay.load(hydra.utils.to_absolute_path(f'experts/{args.env.demo}'),
-                              num_trajs=args.expert.demos,
-                              sample_freq=args.expert.subsample_freq,
-                              seed=args.seed + 42)
+    expert_indices = expert_memory_replay.load(
+        expert_demo_path,
+        num_trajs=args.expert.demos,
+        sample_freq=args.expert.subsample_freq,
+        seed=args.seed + 42,
+        return_indices=True)
+    sampled_traj_indices[expert_demo_name] = set(expert_indices or [])
     print(f'--> Expert memory size: {expert_memory_replay.size()}')
 
     online_memory_replay = Memory(REPLAY_MEMORY//2, args.seed+1)
 
     # Load offline / supplementary data when running in offline mode
     if args.offline:
-        # Always mix expert data into offline buffer.
-        online_memory_replay.load(
-            hydra.utils.to_absolute_path(f'experts/{args.env.demo}'),
-            num_trajs=args.expert.demos,
-            sample_freq=args.expert.subsample_freq,
-            seed=args.seed + 43)
+        # Start the offline buffer from the already-sampled expert buffer so
+        # expert_memory_replay and online_memory_replay share the same expert
+        # trajectories rather than independently resampling expert data.
+        for transition in expert_memory_replay.buffer:
+            online_memory_replay.add(transition)
 
-        # Also mix all datasets under iq_learn/supplement into offline buffer.
+        # Also mix the current environment's supplementary dataset(s) under
+        # iq_learn/supplement into the offline buffer.
         supplement_dir = hydra.utils.to_absolute_path("supplement")
         if os.path.isdir(supplement_dir):
             supplement_files = sorted(
                 f for f in os.listdir(supplement_dir)
                 if os.path.isfile(os.path.join(supplement_dir, f))
-                and f.endswith((".pkl", ".npy", ".pt")))
+                and f.endswith((".pkl", ".npy", ".pt"))
+                and os.path.basename(f) == expert_demo_name)
+            if supplement_files:
+                print(f'--> Supplement files matched current env: {supplement_files}')
+            else:
+                print(f'--> No supplement file matched current env demo: {expert_demo_name}')
             for idx, supplement_file in enumerate(supplement_files):
-                online_memory_replay.load(
+                supplement_name = os.path.basename(supplement_file)
+                selected_indices = online_memory_replay.load(
                     os.path.join(supplement_dir, supplement_file),
                     num_trajs=getattr(args.expert, 'offline_demos', -1),
                     sample_freq=args.expert.subsample_freq,
-                    seed=args.seed + 44 + idx)
+                    seed=args.seed + 44 + idx,
+                    exclude_indices=sampled_traj_indices.get(supplement_name),
+                    return_indices=True)
+                sampled_traj_indices.setdefault(supplement_name, set()).update(
+                    selected_indices or [])
                 print(f'--> Loaded Supplement dataset: {supplement_file}')
 
         print(f'--> Offline buffer size (expert + Supplement): {online_memory_replay.size()}')

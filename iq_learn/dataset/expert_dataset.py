@@ -1,4 +1,4 @@
-from typing import Any, Dict, IO, List, Tuple
+from typing import Any, Dict, IO, List, Optional, Sequence, Tuple
 
 import numpy as np
 import pickle
@@ -26,7 +26,9 @@ class ExpertDataset(Dataset):
                  expert_location: str,
                  num_trajectories: int = 4,
                  subsample_frequency: int = 20,
-                 seed: int = 0):
+                 seed: int = 0,
+                 exclude_indices: Optional[Sequence[int]] = None,
+                 trajectory_indices: Optional[Sequence[int]] = None):
         """Subsamples an expert dataset from saved expert trajectories.
 
         Args:
@@ -35,7 +37,14 @@ class ExpertDataset(Dataset):
             subsample_frequency:      Subsamples each trajectory at specified frequency of steps.
             deterministic:            If true, sample determinstic expert trajectories.
         """
-        all_trajectories = load_trajectories(expert_location, num_trajectories, seed)
+        all_trajectories, self.selected_indices = load_trajectories(
+            expert_location,
+            num_trajectories,
+            seed,
+            exclude_indices=exclude_indices,
+            trajectory_indices=trajectory_indices,
+            return_indices=True,
+        )
         loaded_num_trajectories = len(all_trajectories["states"])
         self.trajectories = {}
 
@@ -98,7 +107,10 @@ class ExpertDataset(Dataset):
 
 def load_trajectories(expert_location: str,
                       num_trajectories: int = 10,
-                      seed: int = 0) -> Dict[str, Any]:
+                      seed: int = 0,
+                      exclude_indices: Optional[Sequence[int]] = None,
+                      trajectory_indices: Optional[Sequence[int]] = None,
+                      return_indices: bool = False) -> Dict[str, Any]:
     """Load expert trajectories
 
     Args:
@@ -115,18 +127,14 @@ def load_trajectories(expert_location: str,
         with open(expert_location, 'rb') as f:
             trajs = read_file(expert_location, f)
 
-        rng = np.random.RandomState(seed)
-        # Sample random `num_trajectories` experts.
-        perm = np.arange(len(trajs["states"]))
-        perm = rng.permutation(perm)
-        total_num_trajectories = len(perm)
-
-        if num_trajectories is None or num_trajectories < 0:
-            num_trajectories = total_num_trajectories
-        else:
-            num_trajectories = min(num_trajectories, total_num_trajectories)
-
-        idx = perm[:num_trajectories]
+        total_num_trajectories = len(trajs["states"])
+        idx = _select_trajectory_indices(
+            total_num_trajectories,
+            num_trajectories,
+            seed,
+            exclude_indices=exclude_indices,
+            trajectory_indices=trajectory_indices,
+        )
         for k, v in trajs.items():
             # if not torch.is_tensor(v):
             #     v = np.array(v)  # convert to numpy array
@@ -134,7 +142,33 @@ def load_trajectories(expert_location: str,
 
     else:
         raise ValueError(f"{expert_location} is not a valid path")
+    if return_indices:
+        return trajs, idx
     return trajs
+
+
+def _select_trajectory_indices(total_num_trajectories: int,
+                               num_trajectories: int,
+                               seed: int,
+                               exclude_indices: Optional[Sequence[int]] = None,
+                               trajectory_indices: Optional[Sequence[int]] = None) -> List[int]:
+    if trajectory_indices is not None:
+        idx = [int(i) for i in trajectory_indices]
+    else:
+        rng = np.random.RandomState(seed)
+        perm = rng.permutation(np.arange(total_num_trajectories))
+        excluded = {int(i) for i in (exclude_indices or [])}
+        available = [int(i) for i in perm if int(i) not in excluded]
+
+        if num_trajectories is None or num_trajectories < 0:
+            idx = available
+        else:
+            idx = available[:min(int(num_trajectories), len(available))]
+
+    for i in idx:
+        if i < 0 or i >= total_num_trajectories:
+            raise IndexError(f"Trajectory index {i} is out of range for dataset size {total_num_trajectories}")
+    return idx
 
 
 def read_file(path: str, file_handle: IO[Any]) -> Dict[str, Any]:

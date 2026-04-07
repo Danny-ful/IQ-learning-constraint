@@ -1,4 +1,5 @@
 from collections import deque
+from typing import Optional, Sequence
 import numpy as np
 import random
 import torch
@@ -37,14 +38,26 @@ class Memory(object):
         print(b.shape)
         np.save(path, b)
 
-    def load(self, path, num_trajs, sample_freq, seed):
+    def load(self, path, num_trajs, sample_freq, seed,
+             exclude_indices: Optional[Sequence[int]] = None,
+             trajectory_indices: Optional[Sequence[int]] = None,
+             return_indices: bool = False):
         # If path has no extension add npy
         if not path.endswith("pkl"):
             path += '.npy'
-        data = ExpertDataset(path, num_trajs, sample_freq, seed)
+        data = ExpertDataset(
+            path,
+            num_trajs,
+            sample_freq,
+            seed,
+            exclude_indices=exclude_indices,
+            trajectory_indices=trajectory_indices,
+        )
         # data = np.load(path, allow_pickle=True)
         for i in range(len(data)):
             self.add(data[i])
+        if return_indices:
+            return list(data.selected_indices)
 
     def get_samples(self, batch_size, device):
         batch = self.sample(batch_size, False)
