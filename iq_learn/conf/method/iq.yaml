@@ -17,6 +17,15 @@ method:
   dice_alpha: 0.1
   # Clip weighted-BC importance weights before re-normalizing them.
   bc_weight_clip: 20.0
+  # Reuse the previous eval-time BC policy as initialization for the next eval,
+  # so offline weighted BC refines instead of restarting every eval.
+  bc_warm_start_eval: true
+  # Estimate BC-weight statistics from random offline batches at every eval.
+  bc_weight_eval_batches: 16
+  # If <= 0, reuse `bc_batch`.
+  bc_weight_eval_batch: 0
+  # Log sampled weight/reward histograms to TensorBoard/W&B.
+  bc_weight_eval_hist: true
   lambda_gp: 10
   mix_coeff: 1
 

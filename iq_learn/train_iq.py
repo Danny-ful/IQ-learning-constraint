@@ -124,6 +124,29 @@ def _make_dice_agent(agent, args):
     return DiceAgent.from_maxq(agent)
 
 
+def _warm_start_eval_bc(current_dice_agent, previous_dice_agent, args):
+    """Warm-start eval-time weighted BC from the previous eval policy."""
+    if previous_dice_agent is None:
+        return False
+    if not bool(getattr(args.method, "bc_warm_start_eval", True)):
+        return False
+    return current_dice_agent.warm_start_bc_from(previous_dice_agent)
+
+
+def _log_weight_stats(logger, dice_agent, buffer, args, step, prefix="eval/bc_weight"):
+    """Log sampled weighted-BC weight statistics for degeneration checks."""
+    stats, histograms = dice_agent.estimate_weight_stats(buffer, args)
+    if not stats:
+        return
+
+    for key, value in stats.items():
+        logger.log(f"{prefix}/{key}", value, step)
+
+    if bool(getattr(args.method, "bc_weight_eval_hist", True)):
+        for key, values in histograms.items():
+            logger.log_histogram(f"{prefix}/{key}_hist", values, step)
+
+
 def sync_progress_bar(progress_bar, step, **postfix):
     """Advance a tqdm bar to an absolute step count."""
     if progress_bar is None:
@@ -326,6 +349,7 @@ def main(cfg: DictConfig):
         if normal_r_mode:
             print("[dice_mode] normal_r=True: directly parameterizing the IQ/DICE reward with the critic architecture")
         offline_eval_episode = 0
+        latest_eval_dice = None
         offline_pbar = tqdm(
             range(1, LEARN_STEPS + 1),
             desc=pbar_desc,
@@ -353,9 +377,14 @@ def main(cfg: DictConfig):
             if learn_step % int(args.env.eval_interval) == 0:
                 if args.method.loss == "dice":
                     eval_dice = _make_dice_agent(agent, args)
+                    _log_weight_stats(
+                        logger, eval_dice, online_memory_replay, args, learn_step)
+                    if _warm_start_eval_bc(eval_dice, latest_eval_dice, args):
+                        print("[dice_mode] Warm-started eval BC actor from previous eval.")
                     eval_dice.train_weighted_bc(
                         buffer=online_memory_replay, args=args,
                         logger=logger, writer=writer)
+                    latest_eval_dice = eval_dice
                     eval_returns, _ = evaluate(
                         eval_dice, eval_env, num_episodes=args.eval.eps)
                 else:
@@ -384,6 +413,10 @@ def main(cfg: DictConfig):
         if args.method.loss == "dice":
             print('Starting Weighted BC policy extraction...')
             dice_agent = _make_dice_agent(agent, args)
+            _log_weight_stats(
+                logger, dice_agent, online_memory_replay, args, LEARN_STEPS)
+            if _warm_start_eval_bc(dice_agent, latest_eval_dice, args):
+                print("[dice_mode] Warm-started final BC actor from previous eval.")
             dice_agent.train_weighted_bc(
                 buffer=online_memory_replay, args=args,
                 logger=logger, writer=writer)
@@ -595,17 +628,19 @@ def iq_update_critic(self, policy_batch, expert_batch, logger, step):
         next_V = self.getV(next_obs)
 
     if bool(getattr(args.method, "normal_r", False)) and args.offline and args.method.loss == "dice":
-        # In normal_r mode, keep the critic architecture fixed but let it
-        # parameterize the reward term used inside IQ/DICE directly.
-        # We convert the reward head into a synthetic Q via Q := r + gamma V'
-        # so iq_loss can be reused unchanged; every (Q - gamma V') term then
-        # reduces back to the learned reward.
-        y = (1 - batch[4]) * self.gamma * next_V
+        # In normal_r mode the critic directly parameterizes the reward r(s,a).
+        # Every term in iq_loss only uses (current_Q - gamma*next_v), so the old
+        # trick of passing (pred_r + y) as current_Q and next_V as next_v caused
+        # a redundant add-then-subtract that is mathematically an identity but
+        # introduces catastrophic floating-point cancellation when V is large.
+        # Instead, pass pred_r directly as current_Q with a zero next_v so that
+        # (current_Q - gamma*0) = pred_r exactly, with no large-number arithmetic.
+        zero_next_V = torch.zeros_like(next_V)
 
         if "DoubleQ" in self.args.q_net._target_:
             pred_r1, pred_r2 = self.critic(obs, action, both=True)
-            q1_loss, loss_dict1 = iq_loss(self, pred_r1 + y, current_V, next_V, batch)
-            q2_loss, loss_dict2 = iq_loss(self, pred_r2 + y, current_V, next_V, batch)
+            q1_loss, loss_dict1 = iq_loss(self, pred_r1, current_V, zero_next_V, batch)
+            q2_loss, loss_dict2 = iq_loss(self, pred_r2, current_V, zero_next_V, batch)
             critic_loss = 1 / 2 * (q1_loss + q2_loss)
             loss_dict = average_dicts(loss_dict1, loss_dict2)
             loss_dict.update({
@@ -614,7 +649,7 @@ def iq_update_critic(self, policy_batch, expert_batch, logger, step):
             })
         else:
             pred_r = self.critic(obs, action)
-            critic_loss, loss_dict = iq_loss(self, pred_r + y, current_V, next_V, batch)
+            critic_loss, loss_dict = iq_loss(self, pred_r, current_V, zero_next_V, batch)
             loss_dict['normal_r/pred_reward'] = pred_r.mean().item()
 
         loss_dict['critic_loss'] = critic_loss.item()
@@ -672,7 +707,18 @@ def iq_update(self, policy_buffer, expert_buffer, logger, step):
 
     losses = self.iq_update_critic(policy_batch, expert_batch, logger, step)
 
-    if self.actor and step % self.actor_update_frequency == 0:
+    # In normal_r + dice mode the critic parameterizes reward, not Q.  The
+    # SAC actor update maximises critic(s,a) as if it were Q, which is
+    # semantically wrong (single-step reward ≠ expected return).  Moreover
+    # the actor is never used for evaluation (weighted BC replaces it), so
+    # updating it only causes out-of-distribution exploitation that can
+    # destabilise V estimates used elsewhere.  Skip actor updates entirely.
+    _skip_actor = (
+        self.args.method.loss == "dice"
+        and bool(getattr(self.args.method, "normal_r", False))
+    )
+
+    if self.actor and step % self.actor_update_frequency == 0 and not _skip_actor:
         if not self.args.agent.vdice_actor:
 
             if self.args.offline:

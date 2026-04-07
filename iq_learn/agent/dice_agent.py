@@ -104,6 +104,153 @@ class DiceAgent(MaxQ):
     def normalize_weights(weights):
         return weights / weights.mean().clamp(min=1e-8)
 
+    @staticmethod
+    def _state_dict_compatible(source_state, target_state):
+        return (
+            source_state.keys() == target_state.keys()
+            and all(source_state[k].shape == target_state[k].shape for k in source_state)
+        )
+
+    def _ensure_bc_actor(self, hidden_dim):
+        if self.actor is None:
+            self.actor = PolicyNetwork(
+                self.obs_dim, self.action_dim, hidden_dim
+            ).to(self.device)
+        return self.actor
+
+    def warm_start_bc_from(self, other, hidden_dim=None):
+        """Initialize the BC actor from a previous weighted-BC policy."""
+        other_actor = getattr(other, "actor", None)
+        if other_actor is None:
+            return False
+
+        if hidden_dim is None:
+            hidden_dim = int(getattr(self.args.method, "bc_hidden_dim", 128))
+        self._ensure_bc_actor(hidden_dim)
+
+        source_state = other_actor.state_dict()
+        target_state = self.actor.state_dict()
+        if not self._state_dict_compatible(source_state, target_state):
+            return False
+
+        self.actor.load_state_dict(source_state)
+        return True
+
+    @staticmethod
+    def _tensor_stats(values):
+        values = values.reshape(-1).float()
+        if values.numel() == 0:
+            return {}
+
+        mean = values.mean()
+        std = values.std(unbiased=False)
+        quantiles = torch.quantile(
+            values, torch.tensor([0.5, 0.9, 0.99], device=values.device))
+        return {
+            "mean": mean.item(),
+            "std": std.item(),
+            "min": values.min().item(),
+            "max": values.max().item(),
+            "p50": quantiles[0].item(),
+            "p90": quantiles[1].item(),
+            "p99": quantiles[2].item(),
+        }
+
+    def _compute_bc_weight_tensors(
+        self, obs, next_obs, action, done, env_reward, dice_alpha, div, bc_weight_clip
+    ):
+        reward = self._dice_reward(
+            obs, next_obs, action, done, dice_alpha, env_reward=env_reward)
+        reward = self.project_reward_to_valid_domain(
+            reward, div, dice_alpha, eps=1e-6)
+        raw_weights = self.compute_density_ratio(reward, div, dice_alpha)
+        clipped_weights = torch.clamp(raw_weights, max=bc_weight_clip)
+        normalized_weights = self.normalize_weights(clipped_weights)
+        return reward, raw_weights, clipped_weights, normalized_weights
+
+    def estimate_weight_stats(self, buffer, args):
+        """Estimate weighted-BC weight distribution from random buffer batches."""
+        eval_batches = int(getattr(args.method, "bc_weight_eval_batches", 16))
+        eval_batch = int(getattr(args.method, "bc_weight_eval_batch", 0))
+        bc_batch = int(getattr(args.method, "bc_batch", 256))
+        eval_batch = eval_batch if eval_batch > 0 else bc_batch
+        bc_weight_clip = float(getattr(args.method, "bc_weight_clip", 20.0))
+        dice_alpha = float(
+            getattr(args.method, "dice_alpha", getattr(args.method, "alpha", 0.05)))
+        div = args.method.div
+
+        if eval_batches <= 0 or buffer.size() == 0:
+            return {}, {}
+
+        prev_q_training = self.q_net.training
+        prev_target_training = self.target_net.training
+        self.q_net.eval()
+        self.target_net.eval()
+
+        rewards = []
+        raw_weights = []
+        clipped_weights = []
+        normalized_weights = []
+
+        with torch.no_grad():
+            for _ in range(eval_batches):
+                obs, next_obs, action, env_reward, done = buffer.get_samples(
+                    eval_batch, self.device)
+                reward, raw_weight, clipped_weight, normalized_weight = (
+                    self._compute_bc_weight_tensors(
+                        obs, next_obs, action, done, env_reward,
+                        dice_alpha, div, bc_weight_clip)
+                )
+                rewards.append(reward.reshape(-1).detach().cpu())
+                raw_weights.append(raw_weight.reshape(-1).detach().cpu())
+                clipped_weights.append(clipped_weight.reshape(-1).detach().cpu())
+                normalized_weights.append(normalized_weight.reshape(-1).detach().cpu())
+
+        self.q_net.train(prev_q_training)
+        self.target_net.train(prev_target_training)
+
+        reward_tensor = torch.cat(rewards)
+        raw_weight_tensor = torch.cat(raw_weights)
+        clipped_weight_tensor = torch.cat(clipped_weights)
+        normalized_weight_tensor = torch.cat(normalized_weights)
+
+        ess = (
+            clipped_weight_tensor.sum().pow(2)
+            / clipped_weight_tensor.square().sum().clamp(min=1e-8)
+        )
+        ess_ratio = ess / float(clipped_weight_tensor.numel())
+        clip_frac = (raw_weight_tensor >= bc_weight_clip).float().mean()
+
+        stats = {
+            "sample_count": float(raw_weight_tensor.numel()),
+            "clip_frac": clip_frac.item(),
+            "ess_ratio": ess_ratio.item(),
+        }
+        stats.update({
+            "reward/" + key: value
+            for key, value in self._tensor_stats(reward_tensor).items()
+        })
+        stats.update({
+            "raw/" + key: value
+            for key, value in self._tensor_stats(raw_weight_tensor).items()
+        })
+        stats.update({
+            "clipped/" + key: value
+            for key, value in self._tensor_stats(clipped_weight_tensor).items()
+        })
+        stats.update({
+            "normalized/" + key: value
+            for key, value in self._tensor_stats(normalized_weight_tensor).items()
+        })
+
+        histograms = {
+            "reward": reward_tensor,
+            "raw": raw_weight_tensor,
+            "clipped": clipped_weight_tensor,
+            "normalized": normalized_weight_tensor,
+        }
+        return stats, histograms
+
     
     # ----- projection of reward to valid domain (for computing density ratio) -- #
 
@@ -240,10 +387,7 @@ class DiceAgent(MaxQ):
             getattr(args.method, "dice_alpha", getattr(args.method, "alpha", 0.05)))
         div = args.method.div
 
-        if self.actor is None:
-            self.actor = PolicyNetwork(
-                self.obs_dim, self.action_dim, hidden_dim
-            ).to(self.device)
+        self._ensure_bc_actor(hidden_dim)
         actor_optimizer = Adam(self.actor.parameters(), lr=bc_lr)
 
         self.q_net.eval()
@@ -260,14 +404,9 @@ class DiceAgent(MaxQ):
                 bc_batch, self.device)
 
             with torch.no_grad():
-                reward = self._dice_reward(
-                    obs, next_obs, action, done, dice_alpha, env_reward=env_reward)
-                ### ensure reward is in valid domain of (f')^{-1} before computing density ratio
-                reward = self.project_reward_to_valid_domain(
-                    reward, div, dice_alpha, eps=1e-6)
-                weights = self.compute_density_ratio(reward, div, dice_alpha)
-                weights = torch.clamp(weights, max=bc_weight_clip)
-                weights = self.normalize_weights(weights)
+                _, _, _, weights = self._compute_bc_weight_tensors(
+                    obs, next_obs, action, done, env_reward,
+                    dice_alpha, div, bc_weight_clip)
 
             log_prob = self.actor.get_log_prob(obs, action)
             bc_loss = -(weights * log_prob).mean()
