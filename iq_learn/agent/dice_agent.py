@@ -100,6 +100,10 @@ class DiceAgent(MaxQ):
         # agent.ensemble = maxq_agent.ensemble
         return agent
 
+    @staticmethod
+    def normalize_weights(weights):
+        return weights / weights.mean().clamp(min=1e-8)
+
     
     # ----- projection of reward to valid domain (for computing density ratio) -- #
 
@@ -234,9 +238,10 @@ class DiceAgent(MaxQ):
             getattr(args.method, "dice_alpha", getattr(args.method, "alpha", 0.05)))
         div = args.method.div
 
-        self.actor = PolicyNetwork(
-            self.obs_dim, self.action_dim, hidden_dim
-        ).to(self.device)
+        if self.actor is None:
+            self.actor = PolicyNetwork(
+                self.obs_dim, self.action_dim, hidden_dim
+            ).to(self.device)
         actor_optimizer = Adam(self.actor.parameters(), lr=bc_lr)
 
         self.q_net.eval()
@@ -258,6 +263,7 @@ class DiceAgent(MaxQ):
                 ### ensure reward is in valid domain of (f')^{-1} before computing density ratio
                 reward = self.project_reward_to_valid_domain(reward, div, eps=1e-6)
                 weights = self.compute_density_ratio(reward, div)
+                weights = self.normalize_weights(weights)
 
             log_prob = self.actor.get_log_prob(obs, action)
             bc_loss = -(weights * log_prob).mean()

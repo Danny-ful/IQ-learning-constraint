@@ -79,6 +79,10 @@ class ContinuousDiceAgent(SAC):
 
     compute_density_ratio = staticmethod(DiceAgent.compute_density_ratio)
 
+    @staticmethod
+    def _normalize_weights(weights):
+        return weights / weights.mean().clamp(min=1e-8)
+
     # ----- dice reward ------------------------------------------------ #
 
     def _dice_reward(self, obs, next_obs, action, done, dice_alpha, env_reward=None):
@@ -136,10 +140,18 @@ class ContinuousDiceAgent(SAC):
 
         action_dim = args.agent.action_dim
 
-        self.bc_actor = DiagGaussianActor(
-            self.obs_dim, action_dim, hidden_dim, hidden_depth,
-            log_std_bounds=[-5, 2],
-        ).to(self.device)
+        if self.bc_actor is None:
+            self.bc_actor = DiagGaussianActor(
+                self.obs_dim, action_dim, hidden_dim, hidden_depth,
+                log_std_bounds=[-5, 2],
+            ).to(self.device)
+
+            actor_state = self.actor.state_dict()
+            bc_state = self.bc_actor.state_dict()
+            if actor_state.keys() == bc_state.keys() and all(
+                actor_state[k].shape == bc_state[k].shape for k in actor_state
+            ):
+                self.bc_actor.load_state_dict(actor_state)
         bc_optimizer = Adam(self.bc_actor.parameters(), lr=bc_lr)
 
         self.critic.eval()
@@ -162,6 +174,7 @@ class ContinuousDiceAgent(SAC):
                 ### ensure reward is in valid domain of (f')^{-1}
                 reward = DiceAgent.project_reward_to_valid_domain(reward, div, eps=1e-6)
                 weights = self.compute_density_ratio(reward, div)
+                weights = self._normalize_weights(weights)
 
             dist = self.bc_actor(obs)
             action_clamped = action.clamp(-0.999, 0.999)
