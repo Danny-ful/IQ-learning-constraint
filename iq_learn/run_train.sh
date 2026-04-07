@@ -21,6 +21,9 @@ else
     conda activate IQ
 fi
 
+# MuJoCo 2.1 + mujoco_py：需能找到 libmujoco210.so（见 ~/.mujoco/mujoco210/bin）
+export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:+$LD_LIBRARY_PATH:}/home/ubuntu/.mujoco/mujoco210/bin"
+
 # --- 4. 运行程序 ---
 # 加上全路径，确保万无一失
 python train_iq.py \
