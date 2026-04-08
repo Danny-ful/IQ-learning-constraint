@@ -29,34 +29,6 @@ export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:+$LD_LIBRARY_PATH:}/home/ubuntu/.mujoc
 python train_iq.py \
     env=hopper \
     agent=sac \
-    expert.demos=1 \
-    seed=0 \
-    method.loss=v0 \
-    method.div=kl
-
-python train_iq.py \
-    env=hopper \
-    agent=sac \
-    expert.demos=10 \
-    seed=0 \
-    method.loss=v0 \
-    method.div=kl
-
-python train_iq.py \
-    env=hopper \
-    agent=sac \
-    expert.demos=10 \
-    expert.offline_demos=10 \
-    offline=True \
-    method.loss=dice \
-    seed=0 \
-    method.normal_r=true \
-    method.div=kl
-
-
-python train_iq.py \
-    env=hopper \
-    agent=sac \
     expert.demos=10 \
     expert.offline_demos=10 \
     offline=True \
@@ -64,52 +36,8 @@ python train_iq.py \
     seed=0 \
     method.normal_r=true \
     method.div=kl \
-    method.bc_lr=3e-4 \
-    agent.critic_lr=5e-5 \
-    method.dice_alpha=0.05
-
-python train_iq.py \
-    env=hopper \
-    agent=sac \
-    expert.demos=10 \
-    expert.offline_demos=10 \
-    offline=True \
-    method.loss=dice \
-    seed=0 \
-    method.normal_r=true \
-    method.div=kl \
-    method.bc_lr=1e-4 \
-    agent.critic_lr=5e-5 \
-    method.dice_alpha=0.05
-
-python train_iq.py \
-    env=hopper \
-    agent=sac \
-    expert.demos=10 \
-    expert.offline_demos=10 \
-    offline=True \
-    method.loss=dice \
-    seed=0 \
-    method.normal_r=true \
-    method.div=kl \
-    method.bc_lr=1e-4 \
-    agent.critic_lr=1e-4 \
-    method.dice_alpha=0.05
-
-python train_iq.py \
-    env=hopper \
-    agent=sac \
-    expert.demos=10 \
-    expert.offline_demos=10 \
-    offline=True \
-    method.loss=dice \
-    seed=0 \
-    method.normal_r=true \
-    method.div=kl \
-    method.bc_lr=1e-4 \
-    agent.critic_lr=1e-4 \
-    method.dice_alpha=0.1
-
+    env.learn_steps=1000000
+    
 python train_iq.py \
     env=hopper \
     agent=sac \
@@ -120,9 +48,7 @@ python train_iq.py \
     seed=0 \
     method.normal_r=true \
     method.div=chi \
-    method.bc_lr=1e-4 \
-    agent.critic_lr=1e-4 \
-    method.dice_alpha=0.1
+    env.learn_steps=1000000
 
 python train_iq.py \
     env=hopper \
@@ -132,33 +58,16 @@ python train_iq.py \
     offline=True \
     method.loss=dice \
     seed=0 \
-    method.normal_r=true \
+    method.div=kl \
+    env.learn_steps=1000000
+
+python train_iq.py \
+    env=hopper \
+    agent=sac \
+    expert.demos=10 \
+    expert.offline_demos=10 \
+    offline=True \
+    method.loss=dice \
+    seed=0 \
     method.div=chi \
-    method.bc_lr=1e-4 \
-    agent.critic_lr=1e-4 \
-    method.dice_alpha=0.05
-
-python train_iq.py \
-    env=hopper \
-    agent=sac \
-    expert.demos=10 \
-    expert.offline_demos=10 \
-    offline=True \
-    method.loss=dice \
-    seed=0 \
-    method.normal_r=true \
-    method.div=chi \
-    method.bc_lr=1e-4 \
-    agent.critic_lr=5e-5 \
-    method.dice_alpha=0.05
-
-python train_iq.py \
-    env=hopper \
-    agent=sac \
-    expert.demos=10 \
-    expert.offline_demos=10 \
-    offline=True \
-    method.loss=dice \
-    seed=0 \
-    method.normal_r=true \
-    method.div=chi
+    env.learn_steps=1000000
