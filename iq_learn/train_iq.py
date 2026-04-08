@@ -118,7 +118,7 @@ def _make_dice_agent(agent, args):
     if isinstance(agent, SAC):
         if getattr(args.method, "dice_use_cql_q", False) and not isinstance(agent, CQL):
             raise ValueError(
-                "method.dice_use_cql_q=True requires agent=cql in continuous settings."
+                "method.dice_use_cql_q=True should have forced a CQL base agent."
             )
         return ContinuousDiceAgent.from_sac(agent)
     return DiceAgent.from_maxq(agent)
@@ -139,8 +139,26 @@ def _log_weight_stats(logger, dice_agent, buffer, args, step, prefix="eval/bc_we
     if not stats:
         return
 
-    for key, value in stats.items():
+    summary_keys = (
+        "ess_ratio",
+        "clip_frac",
+        "raw/p99",
+        "normalized/std",
+    )
+    for key in summary_keys:
+        value = stats.get(key)
+        if value is None:
+            continue
         logger.log(f"{prefix}/{key}", value, step)
+
+    print(
+        "[dice_mode] BC weight summary "
+        f"(step={step}): "
+        f"ess_ratio={stats.get('ess_ratio', float('nan')):.4f}  "
+        f"norm_std={stats.get('normalized/std', float('nan')):.4f}  "
+        f"raw_p99={stats.get('raw/p99', float('nan')):.4f}  "
+        f"clip_frac={stats.get('clip_frac', float('nan')):.4f}"
+    )
 
     if bool(getattr(args.method, "bc_weight_eval_hist", True)):
         for key, values in histograms.items():
@@ -209,14 +227,7 @@ def get_args(cfg: DictConfig):
 @hydra.main(config_path="conf", config_name="config")
 def main(cfg: DictConfig):
     args = get_args(cfg)
-    pure_cql_offline = bool(getattr(args.method, "offline_pure_cql", False))
     normal_r_mode = bool(getattr(args.method, "normal_r", False))
-
-    if args.offline:
-        train_mode = "offline_pure_cql" if pure_cql_offline else "offline_iq"
-    else:
-        train_mode = "online_iq"
-    print(f"[train_mode] {train_mode}")
 
     if args.method.loss == "dice" and not args.offline:
         raise ValueError("method.loss=dice is only supported when offline=True")
@@ -236,6 +247,7 @@ def main(cfg: DictConfig):
     env_args = args.env
     env = make_env(args)
     eval_env = make_env(args)
+    pure_cql_offline = bool(getattr(args.method, "offline_pure_cql", False))
 
     # Seed envs (gym>=0.26 removed env.seed; use reset(seed=) via gym_maybe_seed)
     first_obs = gym_maybe_seed(env, args.seed)
@@ -249,6 +261,21 @@ def main(cfg: DictConfig):
     INITIAL_STATES = 128  # Num initial states to use to calculate value of initial state distribution s_0
 
     agent = make_agent(env, args)
+    force_cql_dice_critic = (
+        args.offline
+        and args.method.loss == "dice"
+        and bool(getattr(args.method, "dice_use_cql_q", False))
+        and isinstance(agent, CQL)
+    )
+    pure_cql_offline = pure_cql_offline or force_cql_dice_critic
+
+    if args.offline:
+        train_mode = "offline_pure_cql" if pure_cql_offline else "offline_iq"
+    else:
+        train_mode = "online_iq"
+    print(f"[train_mode] {train_mode}")
+    if force_cql_dice_critic:
+        print("[dice_mode] method.dice_use_cql_q=True: forcing CQL critic training backend.")
 
     # After make_agent, obs_dim/action_dim are set so interpolations resolve; plain dict for wandb JSON.
     wandb_cfg = OmegaConf.to_container(args, resolve=True)
@@ -337,7 +364,7 @@ def main(cfg: DictConfig):
     if args.offline:
         if pure_cql_offline and not isinstance(agent, CQL):
             raise ValueError(
-                "method.offline_pure_cql=True requires agent=cql."
+                "CQL critic backend requires a CQL agent."
             )
 
         if not pure_cql_offline:

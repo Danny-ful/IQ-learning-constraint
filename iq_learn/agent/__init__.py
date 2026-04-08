@@ -5,8 +5,24 @@ from agent.softq import SoftQ
 from agent.maxq import MaxQ
 
 
+def _should_force_cql_for_dice(env, args):
+    return (
+        args.offline
+        and args.method.loss == 'dice'
+        and bool(getattr(args.method, 'dice_use_cql_q', False))
+        and not isinstance(env.action_space, gym.spaces.discrete.Discrete)
+    )
+
+
 def make_agent(env, args):
     obs_dim = env.observation_space.shape[0]
+    force_cql = _should_force_cql_for_dice(env, args)
+
+    if force_cql and args.agent.name != 'cql':
+        print('--> Forcing CQL agent because method.dice_use_cql_q=True')
+        args.agent.name = 'cql'
+        if '_target_' in args.agent:
+            args.agent._target_ = 'agent.cql.CQL'
 
     if args.agent.name == 'maxq':
         print('--> Using MaxQ agent')

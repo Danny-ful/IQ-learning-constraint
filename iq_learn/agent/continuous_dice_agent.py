@@ -320,7 +320,7 @@ class ContinuousDiceAgent(SAC):
                 bc_batch, self.device)
 
             with torch.no_grad():
-                _, _, _, weights = self._compute_bc_weight_tensors(
+                _, raw_weights, _, weights = self._compute_bc_weight_tensors(
                     obs, next_obs, action, done, env_reward,
                     dice_alpha, div, bc_weight_clip)
 
@@ -335,16 +335,20 @@ class ContinuousDiceAgent(SAC):
             bc_optimizer.step()
 
             if step % bc_log_interval == 0:
-                mean_w = weights.mean().item()
+                weight_std = weights.std(unbiased=False).item()
+                clip_frac = (raw_weights >= bc_weight_clip).float().mean().item()
                 bc_pbar.set_postfix(
                     loss=f"{bc_loss.item():.4f}",
-                    mean_weight=f"{mean_w:.4f}",
+                    weight_std=f"{weight_std:.4f}",
                 )
                 print(f'  [Weighted BC] step {step}/{bc_steps}  '
-                      f'loss={bc_loss.item():.4f}  mean_weight={mean_w:.4f}')
+                      f'loss={bc_loss.item():.4f}  '
+                      f'weight_std={weight_std:.4f}  '
+                      f'clip_frac={clip_frac:.4f}')
                 if writer is not None:
                     writer.add_scalar('bc/loss', bc_loss.item(), step)
-                    writer.add_scalar('bc/mean_weight', mean_w, step)
+                    writer.add_scalar('bc/weight_std', weight_std, step)
+                    writer.add_scalar('bc/clip_frac', clip_frac, step)
                     writer.add_scalar('bc/max_weight', weights.max().item(), step)
 
         bc_pbar.close()

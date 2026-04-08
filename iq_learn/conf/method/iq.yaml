@@ -36,7 +36,8 @@ method:
   # Keep legacy IQ path by default. Set true to run pure offline CQL updates.
   offline_pure_cql: false
 
-  # For method.loss=dice in continuous domains, force using CQL critic.
+  # For offline continuous dice, force the base agent and training backend to use
+  # the CQL critic path instead of the IQ critic path.
   dice_use_cql_q: false
 
   # Only for offline + dice: parameterize the IQ/DICE reward term directly
