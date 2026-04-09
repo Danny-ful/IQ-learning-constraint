@@ -36,7 +36,11 @@ def _project_reward_to_phi_domain(reward, div, dice_alpha, eps=1e-6):
 
     elif div == "js":
         # valid domain: - reward < log 2 & reward/dice_alpha < log 2
-        reward = torch.clamp(reward, min=- torch.log(2.0) + eps,max=dice_alpha * torch.log(2.0) - eps)
+        reward = torch.clamp(
+            reward,
+            min=-math.log(2.0) + eps,
+            max=dice_alpha * math.log(2.0) - eps,
+        )
 
     elif div == "chi":
         # valid domain: - reward >= -2 & reward/dice_alpha >= -2
@@ -57,23 +61,29 @@ def iq_loss(agent, current_Q, current_v, next_v, batch):
     v0 = agent.getV(obs[expert_mask, ...]).mean()
     loss_dict['v0'] = v0.item()
 
+    # Pre-compute ensemble penalties once (avoids redundant forward passes
+    # in chi2 and constrain sections that would otherwise recompute them).
+    _pen_expert = None
+    _pen_all = None
+    ensemble = getattr(agent, "ensemble", None)
+    _lambda_pen = 0.0
+    if ensemble is not None:
+        _lambda_pen = getattr(args.method, "lambda_penalty", 0.0)
+        if _lambda_pen > 0:
+            _pen_expert = ensemble.penalty(
+                obs[expert_mask, ...],
+                action[expert_mask, ...])
+            loss_dict['ensemble_penalty'] = _pen_expert.mean().item()
+            if args.method.constrain:
+                _pen_all = ensemble.penalty(obs, action)
+
     #  calculate 1st term for IQ loss
     #  E_(ρ_expert)[f^*(-Q(s, a) + γV(s'))]
     y = (1 - done) * gamma * next_v
     reward = (current_Q - y)[expert_mask]
 
-    # Ensemble disagreement penalty (only active when agent carries one)
-    ensemble = getattr(agent, "ensemble", None)
-    if ensemble is not None:
-        lambda_pen = getattr(args.method, "lambda_penalty", 0.0)
-        if lambda_pen > 0:
-            pen = ensemble.penalty(
-                obs[expert_mask, ...],
-                action[expert_mask, ...])
-            reward = - reward - lambda_pen * pen
-            loss_dict['ensemble_penalty'] = pen.mean().item()
-        else:
-            reward = -reward
+    if _pen_expert is not None:
+        reward = -reward - _lambda_pen * _pen_expert
     else:
         reward = -reward
 
@@ -202,17 +212,8 @@ def iq_loss(agent, current_Q, current_v, next_v, batch):
 
         reward = (current_Q - y)[expert_mask]
 
-        # Ensemble disagreement penalty (only active when agent carries one)
-        ensemble = getattr(agent, "ensemble", None)
-        if ensemble is not None:
-            lambda_pen = getattr(args.method, "lambda_penalty", 0.0)
-            if lambda_pen > 0:
-                pen = ensemble.penalty(
-                    obs[expert_mask, ...],
-                    action[expert_mask, ...])
-                reward = - reward - lambda_pen * pen
-            else:
-                reward = -reward
+        if _pen_expert is not None:
+            reward = -reward - _lambda_pen * _pen_expert
         else:
             reward = -reward
 
@@ -241,17 +242,10 @@ def iq_loss(agent, current_Q, current_v, next_v, batch):
 
         reward = current_Q - y
 
-        # Ensemble disagreement penalty (only active when agent carries one)
-        ensemble = getattr(agent, "ensemble", None)
-        if ensemble is not None:
-            lambda_pen = getattr(args.method, "lambda_penalty", 0.0)
-            if lambda_pen > 0:
-                pen = ensemble.penalty(obs, action)
-                reward = - reward - lambda_pen * pen
-            else:
-                reward = - reward
+        if _pen_all is not None:
+            reward = -reward - _lambda_pen * _pen_all
         else:
-            reward = - reward
+            reward = -reward
 
         if args.method.div == "hellinger":
             constrain_loss = (torch.relu(reward - 1))**2

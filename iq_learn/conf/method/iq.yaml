@@ -43,3 +43,11 @@ method:
   # Only for offline + dice: parameterize the IQ/DICE reward term directly
   # with the critic architecture instead of learning Q first.
   normal_r: false
+
+  # Transition-ensemble disagreement penalty.
+  # When penalty=true, k transition networks are initialised and trained on
+  # online_memory_replay; the penalty pen(s,a) = max_{i,j} |g_i(s,a)-g_j(s,a)|
+  # is subtracted (scaled by lambda_penalty) from the IQ reward on expert data.
+  penalty: false
+  ensemble_k: 10
+  lambda_penalty: 1.0

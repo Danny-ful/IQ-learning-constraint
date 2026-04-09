@@ -732,7 +732,18 @@ def iq_update(self, policy_buffer, expert_buffer, logger, step):
     policy_batch = policy_buffer.get_samples(self.batch_size, self.device)
     expert_batch = expert_buffer.get_samples(self.batch_size, self.device)
 
+    # Train transition ensemble on replay buffer (each estimator draws its
+    # own independent mini-batch for bootstrap diversity).
+    ensemble = getattr(self, "ensemble", None)
+    if ensemble is not None:
+        ens_losses = ensemble.update_from_buffer(
+            policy_buffer, self.batch_size, logger, step)
+        losses_ens = {f"train/{k}": v for k, v in ens_losses.items()}
+    else:
+        losses_ens = {}
+
     losses = self.iq_update_critic(policy_batch, expert_batch, logger, step)
+    losses.update(losses_ens)
 
     # In normal_r + dice mode the critic parameterizes reward, not Q.  The
     # SAC actor update maximises critic(s,a) as if it were Q, which is

@@ -16,10 +16,11 @@ from agent.transition import TransitionEstimator
 
 class TransitionEnsemble:
     def __init__(self, k: int, obs_dim: int, action_dim: int, args,
-                 device=None):
+                 device=None, continuous: bool = False):
         self.k = k
         self.obs_dim = obs_dim
         self.action_dim = action_dim
+        self.continuous = continuous
         self.device = (torch.device(args.device)
                        if device is None else device)
         self.estimators: List[TransitionEstimator] = [
@@ -77,15 +78,19 @@ class TransitionEnsemble:
 
         Args:
             obs:    [B, obs_dim]
-            action: [B, 1] integer  (will be one-hot encoded internally)
+            action: [B, 1] integer for discrete envs (one-hot encoded internally),
+                    or [B, action_dim] float for continuous envs.
         Returns:
             [B, 1]  non-negative penalty.
         """
-        action_oh = self._action_to_onehot(action, self.action_dim)
+        if self.continuous:
+            action_input = action
+        else:
+            action_input = self._action_to_onehot(action, self.action_dim)
 
         # [k, B, obs_dim]
         preds = torch.stack([
-            est.model.mean(obs, action_oh)
+            est.model.mean(obs, action_input)
             for est in self.estimators
         ], dim=0)
 

@@ -30,7 +30,7 @@ python train_iq.py \
     env=hopper \
     agent=sac \
     expert.demos=10 \
-    expert.offline_demos=10 \
+    expert.offline_demos=-1 \
     offline=True \
     method.loss=dice \
     seed=0 \
@@ -42,7 +42,7 @@ python train_iq.py \
     env=hopper \
     agent=sac \
     expert.demos=10 \
-    expert.offline_demos=10 \
+    expert.offline_demos=-1 \
     offline=True \
     method.loss=dice \
     seed=0 \
@@ -54,20 +54,59 @@ python train_iq.py \
     env=hopper \
     agent=sac \
     expert.demos=10 \
-    expert.offline_demos=10 \
+    expert.offline_demos=-1 \
     offline=True \
     method.loss=dice \
     seed=0 \
-    method.div=kl \
+    method.div=js \
     env.learn_steps=1000000
 
 python train_iq.py \
     env=hopper \
     agent=sac \
     expert.demos=10 \
-    expert.offline_demos=10 \
+    expert.offline_demos=-1 \
     offline=True \
     method.loss=dice \
     seed=0 \
-    method.div=chi \
+    method.normal_r=true \
+    method.div=kl \
+    method.constrain=True \
     env.learn_steps=1000000
+    
+python train_iq.py \
+    env=hopper \
+    agent=sac \
+    expert.demos=10 \
+    expert.offline_demos=-1 \
+    offline=True \
+    method.loss=dice \
+    seed=0 \
+    method.normal_r=true \
+    method.div=chi \
+    method.constrain=True \
+    env.learn_steps=1000000
+
+python train_iq.py \
+    env=hopper \
+    agent=sac \
+    expert.demos=10 \
+    expert.offline_demos=-1 \
+    offline=True \
+    method.loss=dice \
+    seed=0 \
+    method.div=js \
+    method.constrain=True \
+    env.learn_steps=1000000
+
+python train_iq.py \
+ env=hopper \
+ agent=cql \
+ expert.demos=1 \
+ offline=True \
+ method.loss=dice \
+ method.offline_pure_cql=true \
+ method.dice_use_cql_q=true \
+ seed=0 \
+ env.learn_steps=1000000
+

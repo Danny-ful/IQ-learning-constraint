@@ -6,6 +6,7 @@ from torch.optim import Adam
 import hydra
 
 from utils.utils import soft_update
+from agent.penalty import TransitionEnsemble
 
 
 def _is_finite_tensor(tensor):
@@ -86,6 +87,16 @@ class SAC(object):
         self.log_alpha_optimizer = Adam([self.log_alpha],
                                         lr=agent_cfg.alpha_lr,
                                         betas=agent_cfg.alpha_betas)
+
+        ensemble_k = int(getattr(getattr(args, "method", None),
+                                 "ensemble_k", 0))
+        if ensemble_k > 0 and bool(getattr(args.method, "penalty", False)):
+            self.ensemble = TransitionEnsemble(
+                ensemble_k, obs_dim, action_dim, args, self.device,
+                continuous=True)
+        else:
+            self.ensemble = None
+
         self.train()
         self.critic_target.train()
 

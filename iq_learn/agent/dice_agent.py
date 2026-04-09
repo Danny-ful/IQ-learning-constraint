@@ -26,6 +26,7 @@ Typical usage inside ``train_iq.py``::
     evaluate(dice_agent, eval_env)
 """
 
+import math
 import os
 import numpy as np
 import torch
@@ -97,7 +98,7 @@ class DiceAgent(MaxQ):
         agent.q_net.load_state_dict(maxq_agent.q_net.state_dict())
         agent.target_net.load_state_dict(maxq_agent.target_net.state_dict())
         agent.transition = maxq_agent.transition
-        # agent.ensemble = maxq_agent.ensemble
+        agent.ensemble = maxq_agent.ensemble
         return agent
 
     @staticmethod
@@ -279,7 +280,11 @@ class DiceAgent(MaxQ):
 
         elif div == "js":
             # valid domain: - reward < log 2 & reward/dice_alpha < log 2
-            reward = torch.clamp(reward, min=- torch.log(2.0) + eps,max=dice_alpha * torch.log(2.0) - eps)
+            reward = torch.clamp(
+                reward,
+                min=-math.log(2.0) + eps,
+                max=dice_alpha * math.log(2.0) - eps,
+            )
 
         elif div == "chi":
             # valid domain: - reward >= -2 & reward/dice_alpha >= -2

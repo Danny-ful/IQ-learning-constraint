@@ -73,6 +73,7 @@ class ContinuousDiceAgent(SAC):
         agent.actor.load_state_dict(sac_agent.actor.state_dict())
         agent.log_alpha = sac_agent.log_alpha.clone().detach()
         agent.log_alpha.requires_grad_(True)
+        agent.ensemble = getattr(sac_agent, "ensemble", None)
         return agent
 
     # ----- density-ratio computation (shared with discrete dice) ------ #

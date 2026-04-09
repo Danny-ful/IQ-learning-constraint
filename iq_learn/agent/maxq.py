@@ -38,9 +38,10 @@ class MaxQ(object):
 
         ensemble_k = int(getattr(getattr(args, "method", None),
                                  "ensemble_k", 0))
-        if ensemble_k > 0:
+        if ensemble_k > 0 and bool(getattr(args.method, "penalty", False)):
             self.ensemble = TransitionEnsemble(
-                ensemble_k, num_inputs, action_dim, args, self.device)
+                ensemble_k, num_inputs, action_dim, args, self.device,
+                continuous=False)
         else:
             self.ensemble = None
 
