@@ -16,7 +16,7 @@ method:
   # Falls back to `alpha` if omitted (backward compatible).
   dice_alpha: 0.1
   # Clip weighted-BC importance weights before re-normalizing them.
-  bc_weight_clip: 20.0
+  bc_weight_clip: 5.0
   # Reuse the previous eval-time BC policy as initialization for the next eval,
   # so offline weighted BC refines instead of restarting every eval.
   bc_warm_start_eval: true
@@ -26,6 +26,12 @@ method:
   bc_weight_eval_batch: 0
   # Log sampled weight/reward histograms to TensorBoard/W&B.
   bc_weight_eval_hist: true
+  # Use a single global weight mean (estimated before BC training) as the
+  # normalization denominator instead of per-batch mean.  Eliminates batch-to-batch
+  # weight distribution variance that destabilises BC gradient direction.
+  bc_global_normalize: false
+  # Number of random batches to sample for estimating the global weight mean.
+  bc_global_norm_batches: 50
   lambda_gp: 10
   mix_coeff: 1
 

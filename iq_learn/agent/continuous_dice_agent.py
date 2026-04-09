@@ -239,6 +239,39 @@ class ContinuousDiceAgent(SAC):
         }
         return stats, histograms
 
+    def _estimate_global_weight_mean(self, buffer, batch_size, dice_alpha,
+                                     div, bc_weight_clip, n_batches=50):
+        """Sample ``n_batches`` from *buffer* and return the global mean of
+        clipped importance weights.  Used as a fixed denominator for
+        global-normalize mode in ``train_weighted_bc`` so that every
+        mini-batch sees the same normalization constant."""
+        weight_sum = 0.0
+        weight_count = 0
+
+        prev_critic_training = self.critic.training
+        prev_target_training = self.critic_target.training
+        prev_actor_training = self.actor.training
+        self.critic.eval()
+        self.critic_target.eval()
+        self.actor.eval()
+
+        with torch.no_grad():
+            for _ in range(n_batches):
+                obs, next_obs, action, env_reward, done = buffer.get_samples(
+                    batch_size, self.device)
+                _, _, clipped_w, _ = self._compute_bc_weight_tensors(
+                    obs, next_obs, action, done, env_reward,
+                    dice_alpha, div, bc_weight_clip)
+                weight_sum += clipped_w.sum().item()
+                weight_count += clipped_w.numel()
+
+        self.critic.train(prev_critic_training)
+        self.critic_target.train(prev_target_training)
+        self.actor.train(prev_actor_training)
+
+        global_mean = weight_sum / max(weight_count, 1)
+        return max(global_mean, 1e-8)
+
     # ----- dice reward ------------------------------------------------ #
 
     def _dice_reward(self, obs, next_obs, action, done, dice_alpha, env_reward=None):
@@ -272,21 +305,23 @@ class ContinuousDiceAgent(SAC):
 
         Hyperparameters (read from ``args.method`` with defaults):
 
-        ================= ======= ====================================
-        key               default meaning
-        ================= ======= ====================================
-        bc_steps          10000   gradient steps for BC
-        bc_lr             3e-4    actor learning rate
-        bc_batch          256     mini-batch size
-        bc_log_interval   500     print / tensorboard log frequency
-        bc_hidden_dim     256     hidden-layer width of the actor MLP
-        bc_hidden_depth   2       hidden-layer depth of the actor MLP
-        dice_alpha        0.05    DICE reward scaling (falls back to ``alpha``)
-        ================= ======= ====================================
+        ========================= ======= ==========================================
+        key                       default meaning
+        ========================= ======= ==========================================
+        bc_steps                  30000   gradient steps for BC
+        bc_lr                     3e-4    actor learning rate
+        bc_batch                  1024    mini-batch size
+        bc_log_interval           500     print / tensorboard log frequency
+        bc_hidden_dim             256     hidden-layer width of the actor MLP
+        bc_hidden_depth           2       hidden-layer depth of the actor MLP
+        dice_alpha                0.05    DICE reward scaling (falls back to ``alpha``)
+        bc_global_normalize       false   use global weight mean instead of per-batch
+        bc_global_norm_batches    50      batches to sample for global mean estimate
+        ========================= ======= ==========================================
         """
-        bc_steps = int(getattr(args.method, "bc_steps", 10000))
+        bc_steps = int(getattr(args.method, "bc_steps", 30000))
         bc_lr = float(getattr(args.method, "bc_lr", 3e-4))
-        bc_batch = int(getattr(args.method, "bc_batch", 256))
+        bc_batch = int(getattr(args.method, "bc_batch", 1024))
         bc_log_interval = int(getattr(args.method, "bc_log_interval", 500))
         hidden_dim = int(getattr(args.method, "bc_hidden_dim", 256))
         hidden_depth = int(getattr(args.method, "bc_hidden_depth", 2))
@@ -294,6 +329,8 @@ class ContinuousDiceAgent(SAC):
         dice_alpha = float(
             getattr(args.method, "dice_alpha", getattr(args.method, "alpha", 0.05)))
         div = args.method.div
+        bc_global_normalize = bool(getattr(args.method, "bc_global_normalize", False))
+        bc_global_norm_batches = int(getattr(args.method, "bc_global_norm_batches", 50))
 
         created_bc_actor = self.bc_actor is None
         self._ensure_bc_actor(hidden_dim, hidden_depth)
@@ -310,6 +347,15 @@ class ContinuousDiceAgent(SAC):
         self.critic_target.eval()
         self.actor.eval()
 
+        global_weight_mean = None
+        if bc_global_normalize:
+            global_weight_mean = self._estimate_global_weight_mean(
+                buffer, bc_batch, dice_alpha, div, bc_weight_clip,
+                n_batches=bc_global_norm_batches)
+            print(f'  [Weighted BC] global_normalize=True  '
+                  f'global_weight_mean={global_weight_mean:.6f}  '
+                  f'(estimated from {bc_global_norm_batches} batches)')
+
         bc_pbar = tqdm(
             range(1, bc_steps + 1),
             desc="Weighted BC",
@@ -321,9 +367,15 @@ class ContinuousDiceAgent(SAC):
                 bc_batch, self.device)
 
             with torch.no_grad():
-                _, raw_weights, _, weights = self._compute_bc_weight_tensors(
-                    obs, next_obs, action, done, env_reward,
-                    dice_alpha, div, bc_weight_clip)
+                _, raw_weights, clipped_weights, per_batch_weights = \
+                    self._compute_bc_weight_tensors(
+                        obs, next_obs, action, done, env_reward,
+                        dice_alpha, div, bc_weight_clip)
+
+                if global_weight_mean is not None:
+                    weights = clipped_weights / global_weight_mean
+                else:
+                    weights = per_batch_weights
 
             dist = self.bc_actor(obs)
             action_clamped = action.clamp(-0.999, 0.999)

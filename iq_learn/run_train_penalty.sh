@@ -29,120 +29,81 @@ export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:+$LD_LIBRARY_PATH:}/home/ubuntu/.mujoc
 python train_iq.py \
     env=hopper \
     agent=sac \
-    expert.demos=1 \
-    expert.offline_demos=1 \
+    expert.demos=10 \
+    expert.offline_demos=50 \
     offline=True \
-    method.loss=dice \
+    method.loss=v0 \
     seed=0 \
-    method.normal_r=true \
-    method.div=kl
-
-
-python train_iq.py \
-    env=hopper \
-    agent=sac \
-    expert.demos=1 \
-    expert.offline_demos=1 \
-    offline=True \
-    method.loss=dice \
-    seed=0 \
-    method.normal_r=true \
     method.div=kl \
-    method.bc_lr=3e-4 \
-    agent.critic_lr=5e-5 \
-    method.dice_alpha=0.05
+    method.penalty=true \
+    method.constrain=true \
+    method.ensemble_k=10 \
+    method.lambda_penalty=1.0
 
 python train_iq.py \
     env=hopper \
     agent=sac \
-    expert.demos=1 \
-    expert.offline_demos=1 \
+    expert.demos=10 \
+    expert.offline_demos=50 \
     offline=True \
-    method.loss=dice \
+    method.loss=v0 \
     seed=0 \
-    method.normal_r=true \
-    method.div=kl \
-    method.bc_lr=1e-4 \
-    agent.critic_lr=5e-5 \
-    method.dice_alpha=0.05
-
-python train_iq.py \
-    env=hopper \
-    agent=sac \
-    expert.demos=1 \
-    expert.offline_demos=1 \
-    offline=True \
-    method.loss=dice \
-    seed=0 \
-    method.normal_r=true \
-    method.div=kl \
-    method.bc_lr=1e-4 \
-    agent.critic_lr=1e-4 \
-    method.dice_alpha=0.05
-
-python train_iq.py \
-    env=hopper \
-    agent=sac \
-    expert.demos=1 \
-    expert.offline_demos=1 \
-    offline=True \
-    method.loss=dice \
-    seed=0 \
-    method.normal_r=true \
-    method.div=kl \
-    method.bc_lr=1e-4 \
-    agent.critic_lr=1e-4 \
-    method.dice_alpha=0.1
-
-python train_iq.py \
-    env=hopper \
-    agent=sac \
-    expert.demos=1 \
-    expert.offline_demos=1 \
-    offline=True \
-    method.loss=dice \
-    seed=0 \
-    method.normal_r=true \
     method.div=chi \
-    method.bc_lr=1e-4 \
-    agent.critic_lr=1e-4 \
-    method.dice_alpha=0.1
+    method.penalty=true \
+    method.constrain=true \
+    method.ensemble_k=10 \
+    method.lambda_penalty=1.0
 
 python train_iq.py \
     env=hopper \
     agent=sac \
-    expert.demos=1 \
-    expert.offline_demos=1 \
+    expert.demos=10 \
+    expert.offline_demos=50 \
     offline=True \
-    method.loss=dice \
+    method.loss=v0 \
     seed=0 \
-    method.normal_r=true \
+    method.penalty=true \
+    method.constrain=true \
+    method.ensemble_k=10 \
+    method.lambda_penalty=1.0
+
+python train_iq.py \
+    env=hopper \
+    agent=sac \
+    expert.demos=10 \
+    expert.offline_demos=50 \
+    offline=True \
+    method.loss=value \
+    seed=0 \
+    method.div=kl \
+    method.penalty=true \
+    method.constrain=true \
+    method.ensemble_k=10 \
+    method.lambda_penalty=1.0
+
+python train_iq.py \
+    env=hopper \
+    agent=sac \
+    expert.demos=10 \
+    expert.offline_demos=50 \
+    offline=True \
+    method.loss=value \
+    seed=0 \
     method.div=chi \
-    method.bc_lr=1e-4 \
-    agent.critic_lr=1e-4 \
-    method.dice_alpha=0.05
+    method.penalty=true \
+    method.constrain=true \
+    method.ensemble_k=10 \
+    method.lambda_penalty=1.0
 
 python train_iq.py \
     env=hopper \
     agent=sac \
-    expert.demos=1 \
-    expert.offline_demos=1 \
+    expert.demos=10 \
+    expert.offline_demos=50 \
     offline=True \
-    method.loss=dice \
+    method.loss=value \
     seed=0 \
-    method.normal_r=true \
-    method.div=chi \
-    method.bc_lr=1e-4 \
-    agent.critic_lr=5e-5 \
-    method.dice_alpha=0.05
-
-python train_iq.py \
-    env=hopper \
-    agent=sac \
-    expert.demos=1 \
-    expert.offline_demos=1 \
-    offline=True \
-    method.loss=dice \
-    seed=0 \
-    method.normal_r=true \
-    method.div=chi
+    method.penalty=true \
+    method.constrain=true \
+    method.ensemble_k=10 \
+    method.lambda_penalty=1.0
