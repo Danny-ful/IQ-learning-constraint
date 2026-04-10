@@ -636,6 +636,7 @@ def iq_learn_update(self, policy_batch, expert_batch, logger, step):
 
 
 def iq_update_critic(self, policy_batch, expert_batch, logger, step):
+    self._train_step = step
     args = self.args
     policy_obs, policy_next_obs, policy_action, policy_reward, policy_done = policy_batch
     expert_obs, expert_next_obs, expert_action, expert_reward, expert_done = expert_batch

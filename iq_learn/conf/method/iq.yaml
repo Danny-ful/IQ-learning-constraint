@@ -57,3 +57,10 @@ method:
   penalty: false
   ensemble_k: 10
   lambda_penalty: 1.0
+  # Cap per-sample penalty to avoid extreme values from an untrained ensemble.
+  # 0 = disabled (no clamp).
+  max_penalty: 0
+  # Linearly ramp lambda_penalty from 0 to its full value over this many
+  # critic update steps, giving the ensemble time to converge first.
+  # 0 = disabled (full lambda from the start).
+  penalty_warmup_steps: 0

@@ -30,9 +30,9 @@ python train_iq.py \
     env=hopper \
     agent=sac \
     expert.demos=10 \
-    expert.offline_demos=30 \
+    expert.offline_demos=50 \
     offline=True \
-    method.loss=v0 \
+    method.loss=value \
     seed=0 \
     method.constrain=true \
     env.learn_steps=500000

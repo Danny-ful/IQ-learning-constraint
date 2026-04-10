@@ -65,6 +65,7 @@ def iq_loss(agent, current_Q, current_v, next_v, batch):
     # in chi2 and constrain sections that would otherwise recompute them).
     _pen_expert = None
     _pen_all = None
+    supplement_mask = ~expert_mask
     ensemble = getattr(agent, "ensemble", None)
     _lambda_pen = 0.0
     if ensemble is not None:
@@ -73,9 +74,33 @@ def iq_loss(agent, current_Q, current_v, next_v, batch):
             _pen_expert = ensemble.penalty(
                 obs[expert_mask, ...],
                 action[expert_mask, ...])
-            loss_dict['ensemble_penalty'] = _pen_expert.mean().item()
+            loss_dict['ensemble_penalty_expert'] = _pen_expert.mean().item()
+            if supplement_mask.any():
+                _pen_supplement = ensemble.penalty(
+                    obs[supplement_mask, ...],
+                    action[supplement_mask, ...])
+                loss_dict['ensemble_penalty_supplement'] = (
+                    _pen_supplement.mean().item())
             if args.method.constrain:
                 _pen_all = ensemble.penalty(obs, action)
+                loss_dict['ensemble_penalty_all'] = _pen_all.mean().item()
+
+            # Clamp: cap extreme values from untrained ensemble
+            max_pen = float(getattr(args.method, "max_penalty", 0))
+            if max_pen > 0:
+                _pen_expert = torch.clamp(_pen_expert, max=max_pen)
+                if _pen_all is not None:
+                    _pen_all = torch.clamp(_pen_all, max=max_pen)
+
+            # Warmup: ramp effective lambda from 0 over warmup_steps
+            warmup_steps = int(getattr(args.method, "penalty_warmup_steps", 0))
+            if warmup_steps > 0:
+                cur_step = getattr(agent, "_train_step", warmup_steps)
+                warmup_ratio = min(1.0, cur_step / warmup_steps)
+                _lambda_pen = _lambda_pen * warmup_ratio
+                loss_dict['penalty_warmup_ratio'] = warmup_ratio
+
+            
 
     #  calculate 1st term for IQ loss
     #  E_(ρ_expert)[f^*(-Q(s, a) + γV(s'))]

@@ -26,60 +26,6 @@ export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:+$LD_LIBRARY_PATH:}/home/ubuntu/.mujoc
 
 # --- 4. 运行程序 ---
 # 加上全路径，确保万无一失
-python train_iq.py \
-    env=hopper \
-    agent=sac \
-    expert.demos=10 \
-    expert.offline_demos=50 \
-    offline=True \
-    method.loss=v0 \
-    seed=0 \
-    method.div=kl \
-    method.penalty=true \
-    method.constrain=true \
-    method.ensemble_k=10 \
-    method.lambda_penalty=1.0
-
-python train_iq.py \
-    env=hopper \
-    agent=sac \
-    expert.demos=10 \
-    expert.offline_demos=50 \
-    offline=True \
-    method.loss=v0 \
-    seed=0 \
-    method.div=chi \
-    method.penalty=true \
-    method.constrain=true \
-    method.ensemble_k=10 \
-    method.lambda_penalty=1.0
-
-python train_iq.py \
-    env=hopper \
-    agent=sac \
-    expert.demos=10 \
-    expert.offline_demos=50 \
-    offline=True \
-    method.loss=v0 \
-    seed=0 \
-    method.penalty=true \
-    method.constrain=true \
-    method.ensemble_k=10 \
-    method.lambda_penalty=1.0
-
-python train_iq.py \
-    env=hopper \
-    agent=sac \
-    expert.demos=10 \
-    expert.offline_demos=50 \
-    offline=True \
-    method.loss=value \
-    seed=0 \
-    method.div=kl \
-    method.penalty=true \
-    method.constrain=true \
-    method.ensemble_k=10 \
-    method.lambda_penalty=1.0
 
 python train_iq.py \
     env=hopper \
@@ -93,7 +39,9 @@ python train_iq.py \
     method.penalty=true \
     method.constrain=true \
     method.ensemble_k=10 \
-    method.lambda_penalty=1.0
+    method.lambda_penalty=1.0 \
+    method.max_penalty=5.0 \
+    method.penalty_warmup_steps=5000
 
 python train_iq.py \
     env=hopper \
@@ -106,4 +54,37 @@ python train_iq.py \
     method.penalty=true \
     method.constrain=true \
     method.ensemble_k=10 \
-    method.lambda_penalty=1.0
+    method.lambda_penalty=1.0 \
+    method.max_penalty=5.0 \
+    method.penalty_warmup_steps=5000
+
+python train_iq.py \
+    env=hopper \
+    agent=sac \
+    expert.demos=10 \
+    expert.offline_demos=50 \
+    offline=True \
+    method.loss=value \
+    seed=0 \
+    method.div=chi \
+    method.penalty=true \
+    method.constrain=true \
+    method.ensemble_k=10 \
+    method.lambda_penalty=1.0 \
+    method.max_penalty=2.0 \
+    method.penalty_warmup_steps=5000
+
+python train_iq.py \
+    env=hopper \
+    agent=sac \
+    expert.demos=10 \
+    expert.offline_demos=50 \
+    offline=True \
+    method.loss=value \
+    seed=0 \
+    method.penalty=true \
+    method.constrain=true \
+    method.ensemble_k=10 \
+    method.lambda_penalty=1.0 \
+    method.max_penalty=2.0 \
+    method.penalty_warmup_steps=5000
